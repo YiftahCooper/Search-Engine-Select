@@ -204,20 +204,19 @@
   outline-offset: -2px;
 }
 #ses-engine-manager {
+  --ses-bg-color: transparent;
+  --ses-border-color: color-mix(in srgb, currentColor 25%, transparent);
+  --ses-hover-bg: color-mix(in srgb, currentColor 8%, transparent);
   box-sizing: border-box;
-  width: min(520px, calc(100vw - 40px));
-  max-height: calc(100vh - 60px);
-  overflow-y: auto;
-  margin: auto;
-  padding: 22px;
-  border: 1px solid var(--ses-border-color);
-  border-radius: 12px;
-  color: var(--ses-text-color);
-  background: var(--ses-bg-color);
-  font: menu;
-  font-size: 14px;
+  width: 100%;
+  margin-block: 18px 0;
+  padding-block: 16px 0;
+  border-top: 1px solid var(--ses-border-color);
+  color: inherit;
+  background: transparent;
+  color-scheme: inherit;
+  font: inherit;
   line-height: 1.5;
-  &::backdrop { background: rgb(0 0 0 / 45%); }
   h2 { margin: 0 0 8px; font-size: 20px; }
   p { margin: 6px 0 12px; }
   .ses-manager-list { max-height: 220px; overflow-y: auto; }
@@ -231,7 +230,6 @@
   button:disabled { opacity: .6; cursor: default; }
   [data-ses-error]:empty { display: none; }
   [data-ses-error] { border-inline-start: 3px solid currentColor; padding-inline-start: 9px; }
-  [data-ses-action="close"] { display: block; margin-inline-start: auto; }
 }
 
 @media -moz-pref("zen.tabs.vertical.right-side") {

@@ -1,10 +1,10 @@
-function openEngineManager(controller) {
+function createEngineSettings(container) {
   const element = (tag, text) => {
     const node = document.createElementNS('http://www.w3.org/1999/xhtml', tag);
     if (text !== undefined) node.textContent = text;
     return node;
   };
-  const dialog = element('dialog'); dialog.id = 'ses-engine-manager';
+  const dialog = element('section'); dialog.id = 'ses-engine-manager';
   dialog.setAttribute('aria-labelledby', 'ses-manager-heading');
   const heading = element('h2', 'Search engines'); heading.id = 'ses-manager-heading';
   const intro = element('p', 'Choose engines for this selector. These choices do not change Zen’s search settings.');
@@ -18,12 +18,6 @@ function openEngineManager(controller) {
   const add = element('button', 'Add engine'); add.type = 'submit'; add.dataset.sesAction = 'add';
   form.append(nameLabel, urlLabel, add);
   const reset = element('button', 'Back up and reset invalid settings'); reset.type = 'button'; reset.hidden = true;
-  const close = element('button', 'Done'); close.type = 'button'; close.dataset.sesAction = 'close';
-  close.addEventListener('click', () => dialog.close());
-  dialog.addEventListener('close', () => {
-    dialog.remove(); if (controller._manager === dialog) controller._manager = null;
-    controller._engineSelect?.focus();
-  });
   let revision = 0, rendered;
   async function render() {
     const currentRevision = ++revision;
@@ -75,12 +69,12 @@ function openEngineManager(controller) {
   reset.addEventListener('click', () => {
     if (!rendered?.error) return;
     try {
-      if (Services.prefs.getStringPref(ENGINE_SETTINGS_PREF, '') !== rendered.raw) throw new Error('Settings changed in another window. Close and reopen the manager.');
+      if (Services.prefs.getStringPref(ENGINE_SETTINGS_PREF, '') !== rendered.raw) throw new Error('Settings changed in another window. Close and reopen Configure.');
       Services.prefs.setStringPref(`${ENGINE_SETTINGS_PREF}-backup`, rendered.raw);
       saveEngineSettings(emptyEngineSettings(), rendered.raw); render();
     } catch (problem) { error.textContent = problem.message; }
   });
-  dialog.append(heading, intro, list, error, form, reset, close);
-  document.documentElement.append(dialog); dialog.showModal(); render();
-  return dialog;
+  dialog.append(heading, intro, list, error, form, reset);
+  container.append(dialog); render();
+  return {element:dialog,refresh:render,reset(){name.value='';url.value='';render();},destroy(){++revision;dialog.remove();}};
 }

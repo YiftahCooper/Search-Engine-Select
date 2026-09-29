@@ -2,7 +2,7 @@
 // @name            Search Engine Select
 // @description     Adds a floating UI to switch search engines on a search results page.
 // @author          Bibek Bhusal
-// @version         1.1.33
+// @version         1.1.34
 // @lastUpdated     2026-09-29
 // @ignorecache
 // @homepage        https://github.com/YiftahCooper/Search-Engine-Select
@@ -170,6 +170,7 @@
 
   // @include engines.js
   // @include manager.js
+  // @include sine-settings.js
 
   // utils/search-service.js
   var _searchService;
@@ -260,7 +261,6 @@
     _disposed: false,
     _timers: new Set(),
     _engineRevision: 0,
-    _manager: null,
     init() {
       if (this._disposed || !PREFS2.enabled || this._container) return;
       if (this._initializing) return this._initializing;
@@ -286,8 +286,6 @@
       for (const timer of this._timers) clearTimeout(timer);
       this._timers.clear();
       this._isDragging = false;
-      this._manager?.remove();
-      this._manager = null;
       this._container?.remove(), this.removeEventListeners(), this._container = null, this._engineSelect = null, this._engineOptions = null, this._dragHandle = null, PREFS2.debugLog("Destroyed successfully.");
     },
     schedulePosition() {
@@ -535,12 +533,11 @@
         });
       });
       const manage = document.createElementNS('http://www.w3.org/1999/xhtml', 'button');
-      manage.type = 'button'; manage.dataset.sesAction = 'manage'; manage.textContent = 'Manage engines…';
+      manage.type = 'button'; manage.dataset.sesAction = 'manage'; manage.textContent = 'Mod settings...';
       manage.addEventListener('click', event => {
         event.stopPropagation();
         this.hideOptionsOnClickOutside();
-        this._manager?.remove();
-        this._manager = openEngineManager(this);
+        window.openTrustedLinkIn('about:preferences?searchEngineSelectSettings=1#sineMods', 'tab');
       });
       options.append(manage);
     },
@@ -585,12 +582,15 @@
     }
   };
   const removers = [];
+  const isSettingsPage = /^about:(preferences|settings)(?:[?#]|$)/.test(window.location.href);
+  let settingsBridge;
   const owner = { unload() {
     if (SearchEngineSwitcher._disposed) return;
     SearchEngineSwitcher._disposed = true;
     window.removeEventListener('load', init);
     window.removeEventListener('unload', owner.unload);
-    SearchEngineSwitcher.destroy();
+    if (isSettingsPage) settingsBridge?.destroy();
+    else SearchEngineSwitcher.destroy();
     for (const remove of removers.splice(0)) remove();
     if (window[ownerKey] === owner) delete window[ownerKey];
   } };
@@ -599,6 +599,7 @@
   window.addEventListener('unload', owner.unload, { once: true });
   function init() {
     if (SearchEngineSwitcher._disposed) return;
+    if (isSettingsPage) { settingsBridge = mountSineSettings(); return; }
     let handleEnabledChange = (pref) => {
       SearchEngineSwitcher.handleEnabledChange(pref);
     };

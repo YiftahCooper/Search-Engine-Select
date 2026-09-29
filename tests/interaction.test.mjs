@@ -16,8 +16,7 @@ test('selector and engine options support keyboard activation and Escape restore
   assert.equal(h.navigations[0][0], 'https://www.google.com/?q=hello');
 });
 test('stale engine-manager edits do not overwrite changes made in another window', async t => {
-  const h = await harness(); t.after(() => h.close());
-  h.document.querySelector('[data-ses-action="manage"]').click(); await tick();
+  const h = await harness({settings:true}); t.after(() => h.close());
   const incoming = JSON.stringify({ version: 1, hidden: ['native:Google'], custom: [] });
   h.put(config, incoming); await tick();
   h.document.querySelector('[name="ses-name"]').value = 'Example';
@@ -39,8 +38,8 @@ test('disabling during an engine-list refresh drops the delayed result', async t
   assert.equal(h.roots().length, 0); assert.equal(h.progress.size, 0);
 });
 test('malformed settings reset preserves original raw data in a backup preference', async t => {
-  const h = await harness({ prefs: { [config]: '{broken' } }); t.after(() => h.close());
-  h.document.querySelector('[data-ses-action="manage"]').click(); await tick();
+  const h = await harness({ settings:true, prefs: { [config]: '{broken' } }); t.after(() => h.close());
+
   [...h.document.querySelectorAll('#ses-engine-manager button')].find(x => x.textContent === 'Back up and reset invalid settings').click();
   await tick(); await tick();
   assert.equal(h.prefs.get(`${config}-backup`), '{broken');

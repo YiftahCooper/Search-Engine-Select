@@ -3,7 +3,7 @@
 // @name            Search Engine Select
 // @description     Adds a floating UI to switch search engines on a search results page.
 // @author          Bibek Bhusal
-// @version         1.1.33
+// @version         1.1.34
 // @lastUpdated     2026-09-29
 // @ignorecache
 // @homepage        https://github.com/YiftahCooper/Search-Engine-Select
@@ -205,7 +205,7 @@ function readEngineSettings() {
   }
 }
 function saveEngineSettings(settings, expectedRaw) {
-  if (Services.prefs.getStringPref(ENGINE_SETTINGS_PREF, '') !== expectedRaw) throw new Error('Engine settings changed in another window. Close and reopen this manager.');
+  if (Services.prefs.getStringPref(ENGINE_SETTINGS_PREF, '') !== expectedRaw) throw new Error('Engine settings changed in another window. Close and reopen Configure.');
   Services.prefs.setStringPref(ENGINE_SETTINGS_PREF, JSON.stringify(settings));
 }
 async function allSearchEngines() {
@@ -218,13 +218,13 @@ async function allSearchEngines() {
   return [...installed, ...custom];
 }
 
-  function openEngineManager(controller) {
+  function createEngineSettings(container) {
   const element = (tag, text) => {
     const node = document.createElementNS('http://www.w3.org/1999/xhtml', tag);
     if (text !== undefined) node.textContent = text;
     return node;
   };
-  const dialog = element('dialog'); dialog.id = 'ses-engine-manager';
+  const dialog = element('section'); dialog.id = 'ses-engine-manager';
   dialog.setAttribute('aria-labelledby', 'ses-manager-heading');
   const heading = element('h2', 'Search engines'); heading.id = 'ses-manager-heading';
   const intro = element('p', 'Choose engines for this selector. These choices do not change Zen’s search settings.');
@@ -238,12 +238,6 @@ async function allSearchEngines() {
   const add = element('button', 'Add engine'); add.type = 'submit'; add.dataset.sesAction = 'add';
   form.append(nameLabel, urlLabel, add);
   const reset = element('button', 'Back up and reset invalid settings'); reset.type = 'button'; reset.hidden = true;
-  const close = element('button', 'Done'); close.type = 'button'; close.dataset.sesAction = 'close';
-  close.addEventListener('click', () => dialog.close());
-  dialog.addEventListener('close', () => {
-    dialog.remove(); if (controller._manager === dialog) controller._manager = null;
-    controller._engineSelect?.focus();
-  });
   let revision = 0, rendered;
   async function render() {
     const currentRevision = ++revision;
@@ -295,14 +289,52 @@ async function allSearchEngines() {
   reset.addEventListener('click', () => {
     if (!rendered?.error) return;
     try {
-      if (Services.prefs.getStringPref(ENGINE_SETTINGS_PREF, '') !== rendered.raw) throw new Error('Settings changed in another window. Close and reopen the manager.');
+      if (Services.prefs.getStringPref(ENGINE_SETTINGS_PREF, '') !== rendered.raw) throw new Error('Settings changed in another window. Close and reopen Configure.');
       Services.prefs.setStringPref(`${ENGINE_SETTINGS_PREF}-backup`, rendered.raw);
       saveEngineSettings(emptyEngineSettings(), rendered.raw); render();
     } catch (problem) { error.textContent = problem.message; }
   });
-  dialog.append(heading, intro, list, error, form, reset, close);
-  document.documentElement.append(dialog); dialog.showModal(); render();
-  return dialog;
+  dialog.append(heading, intro, list, error, form, reset);
+  container.append(dialog); render();
+  return {element:dialog,refresh:render,reset(){name.value='';url.value='';render();},destroy(){++revision;dialog.remove();}};
+}
+
+  // Mount dynamic engine controls in Sine's existing Configure dialog.
+function mountSineSettings() {
+  let controls, container, dialog, configureButton, disposed = false;
+  const style = document.createElementNS('http://www.w3.org/1999/xhtml', 'link');
+  style.rel = 'stylesheet'; style.href = 'chrome://sine/content/search-engine-select/style.css';
+  document.documentElement.append(style);
+  const reset = () => controls?.reset();
+  function unmount() {
+    dialog?.removeEventListener('close', reset);
+    configureButton?.removeEventListener('click', reset);
+    controls?.destroy(); controls = container = dialog = configureButton = null;
+  }
+  function mount() {
+    if (disposed) return;
+    const next = document.querySelector('[mod-id="search-engine-select"] .sineItemPreferenceDialogContent');
+    if (next === container && controls?.element.isConnected) return;
+    unmount(); if (!next) return;
+    container = next; controls = createEngineSettings(container);
+    dialog = container.closest('dialog'); dialog?.addEventListener('close', reset);
+    configureButton = container.closest('[mod-id]')?.querySelector('.sineItemConfigureButton');
+    configureButton?.addEventListener('click', reset);
+    if (new URL(window.location.href).searchParams.get('searchEngineSelectSettings') === '1' && !document.documentElement.hasAttribute('data-ses-settings-shown')) {
+      document.documentElement.setAttribute('data-ses-settings-shown', '');
+      configureButton?.click();
+    }
+  }
+  const observer = new MutationObserver(mount);
+  observer.observe(document.documentElement, {childList: true, subtree: true});
+  const engineObserver = {observe() { controls?.refresh(); }};
+  Services.obs.addObserver(engineObserver, 'browser-search-engine-modified');
+  mount();
+  return {destroy() {
+    if (disposed) return; disposed = true; observer.disconnect();
+    Services.obs.removeObserver(engineObserver, 'browser-search-engine-modified');
+    unmount(); style.remove();
+  }};
 }
 
 
@@ -395,7 +427,6 @@ async function allSearchEngines() {
     _disposed: false,
     _timers: new Set(),
     _engineRevision: 0,
-    _manager: null,
     init() {
       if (this._disposed || !PREFS2.enabled || this._container) return;
       if (this._initializing) return this._initializing;
@@ -421,8 +452,6 @@ async function allSearchEngines() {
       for (const timer of this._timers) clearTimeout(timer);
       this._timers.clear();
       this._isDragging = false;
-      this._manager?.remove();
-      this._manager = null;
       this._container?.remove(), this.removeEventListeners(), this._container = null, this._engineSelect = null, this._engineOptions = null, this._dragHandle = null, PREFS2.debugLog("Destroyed successfully.");
     },
     schedulePosition() {
@@ -670,12 +699,11 @@ async function allSearchEngines() {
         });
       });
       const manage = document.createElementNS('http://www.w3.org/1999/xhtml', 'button');
-      manage.type = 'button'; manage.dataset.sesAction = 'manage'; manage.textContent = 'Manage engines…';
+      manage.type = 'button'; manage.dataset.sesAction = 'manage'; manage.textContent = 'Mod settings...';
       manage.addEventListener('click', event => {
         event.stopPropagation();
         this.hideOptionsOnClickOutside();
-        this._manager?.remove();
-        this._manager = openEngineManager(this);
+        window.openTrustedLinkIn('about:preferences?searchEngineSelectSettings=1#sineMods', 'tab');
       });
       options.append(manage);
     },
@@ -720,12 +748,15 @@ async function allSearchEngines() {
     }
   };
   const removers = [];
+  const isSettingsPage = /^about:(preferences|settings)(?:[?#]|$)/.test(window.location.href);
+  let settingsBridge;
   const owner = { unload() {
     if (SearchEngineSwitcher._disposed) return;
     SearchEngineSwitcher._disposed = true;
     window.removeEventListener('load', init);
     window.removeEventListener('unload', owner.unload);
-    SearchEngineSwitcher.destroy();
+    if (isSettingsPage) settingsBridge?.destroy();
+    else SearchEngineSwitcher.destroy();
     for (const remove of removers.splice(0)) remove();
     if (window[ownerKey] === owner) delete window[ownerKey];
   } };
@@ -734,6 +765,7 @@ async function allSearchEngines() {
   window.addEventListener('unload', owner.unload, { once: true });
   function init() {
     if (SearchEngineSwitcher._disposed) return;
+    if (isSettingsPage) { settingsBridge = mountSineSettings(); return; }
     let handleEnabledChange = (pref) => {
       SearchEngineSwitcher.handleEnabledChange(pref);
     };

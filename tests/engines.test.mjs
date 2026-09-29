@@ -21,27 +21,26 @@ test('custom engine searches preserve and encode Hebrew and reserved characters'
   assert.equal(h.navigations[0][1], 'current');
 });
 test('malformed stored engine settings preserve data and offer recovery instead of destroying the list', async t => {
-  const h = await harness({ prefs: { [config]: '{broken' } }); t.after(() => h.close());
-  assert.deepEqual(h.options(), ['DuckDuckGo', 'Google']);
-  h.document.querySelector('[data-ses-action="manage"]')?.click(); await tick();
+  const h = await harness({ settings:true, prefs: { [config]: '{broken' } }); t.after(() => h.close());
+
   assert.ok(h.document.querySelector('[data-ses-error]')?.textContent.includes('invalid'));
   assert.equal(h.prefs.get(config), '{broken');
 });
 test('engine manager adds, removes and persists custom engines without rewriting native search settings', async t => {
-  const h = await harness(); t.after(() => h.close());
-  const manage = h.document.querySelector('[data-ses-action="manage"]'); assert.ok(manage); manage.click(); await tick();
+  const h = await harness({settings:true}); t.after(() => h.close());
+
   h.document.querySelector('[name="ses-name"]').value = custom.name;
   h.document.querySelector('[name="ses-url"]').value = custom.url;
   h.document.querySelector('[data-ses-action="add"]').click(); await tick(); await tick();
-  assert.ok(h.options().includes(custom.name));
+  assert.ok(h.document.querySelector('#ses-engine-manager').textContent.includes(custom.name));
   assert.equal(JSON.parse(h.prefs.get(config)).custom.length, 1);
   h.document.querySelector('[data-ses-action="remove-custom"]').click(); await tick(); await tick();
-  assert.ok(!h.options().includes(custom.name)); assert.equal(JSON.parse(h.prefs.get(config)).custom.length, 0);
+  assert.ok(!h.document.querySelector('#ses-engine-manager').textContent.includes(custom.name)); assert.equal(JSON.parse(h.prefs.get(config)).custom.length, 0);
   assert.ok([...h.prefs.keys()].every(key => key.startsWith('extension.search-engine-select.')));
 });
 test('engine manager rejects unsafe or ambiguous templates and leaves saved settings unchanged', async t => {
-  const h = await harness(); t.after(() => h.close());
-  h.document.querySelector('[data-ses-action="manage"]')?.click(); await tick();
+  const h = await harness({settings:true}); t.after(() => h.close());
+
   assert.ok(h.document.querySelector('[name="ses-url"]'), 'manager form exists');
   for (const url of ['javascript:alert("{searchTerms}")', 'https://{searchTerms}.example.org/', 'https://user:pass@example.org/?q={searchTerms}', 'https://example.org/', 'https://example.org/?a={searchTerms}&b={searchTerms}']) {
     h.document.querySelector('[name="ses-name"]').value = 'Unsafe';

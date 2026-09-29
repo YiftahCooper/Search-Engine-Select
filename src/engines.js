@@ -34,7 +34,7 @@ function readEngineSettings() {
   }
 }
 function saveEngineSettings(settings, expectedRaw) {
-  if (Services.prefs.getStringPref(ENGINE_SETTINGS_PREF, '') !== expectedRaw) throw new Error('Engine settings changed in another window. Close and reopen this manager.');
+  if (Services.prefs.getStringPref(ENGINE_SETTINGS_PREF, '') !== expectedRaw) throw new Error('Engine settings changed in another window. Close and reopen Configure.');
   Services.prefs.setStringPref(ENGINE_SETTINGS_PREF, JSON.stringify(settings));
 }
 async function allSearchEngines() {
