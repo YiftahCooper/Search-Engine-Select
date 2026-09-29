@@ -1,11 +1,12 @@
 {
   "id": "search-engine-select",
-  "homepage": "https://github.com/Vertex-Mods/Search-Engine-Select",
+  "homepage": "https://github.com/YiftahCooper/Search-Engine-Select",
   "name": "Search Engine Select",
   "description": "Adds a floating UI to switch search engines on a search results page.",
   "author": "Bibek Bhusal",
-  "version": "1.1.32",
-  "updatedAt": "2026-09-07",
+  "version": "1.1.33",
+  "updatedAt": "2026-09-29",
+  "supportsUnload": true,
   "tags": [
     "Search",
     "Search Engine",
@@ -25,6 +26,6 @@
       ]
     }
   },
-  "readme": "https://raw.githubusercontent.com/Vertex-Mods/Search-Engine-Select/main/README.md",
+  "readme": "https://raw.githubusercontent.com/YiftahCooper/Search-Engine-Select/main/README.md",
   "createdAt": "2025-06-23"
 }

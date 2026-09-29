@@ -53,6 +53,7 @@
 
   /* Hover and Active States */
   &:hover,
+  &:focus-within,
   &.is-dragging,
   &.options-visible {
     #ses-engine-select {
@@ -77,6 +78,12 @@
   }
 
   #ses-engine-select {
+    appearance: none;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    background: transparent;
+    color: var(--ses-text-color);
     display: flex;
     align-items: center;
     gap: 8px;
@@ -151,6 +158,14 @@
     }
 
     .ses-engine-option {
+      appearance: none;
+      width: 100%;
+      margin: 0;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      text-align: start;
       padding: 6px 10px;
       display: flex;
       align-items: center;
@@ -169,6 +184,54 @@
       }
     }
   }
+}
+
+#ses-engine-options [data-ses-action="manage"] {
+  display: block;
+  width: 100%;
+  min-height: 32px;
+  margin-top: 5px;
+  padding: 7px;
+  border: 1px solid var(--ses-border-color);
+  border-radius: 5px;
+  color: var(--ses-text-color);
+  background: var(--ses-bg-color);
+  cursor: pointer;
+}
+#search-engine-switcher-container button:focus-visible,
+#ses-engine-manager :focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: -2px;
+}
+#ses-engine-manager {
+  box-sizing: border-box;
+  width: min(520px, calc(100vw - 40px));
+  max-height: calc(100vh - 60px);
+  overflow-y: auto;
+  margin: auto;
+  padding: 22px;
+  border: 1px solid var(--ses-border-color);
+  border-radius: 12px;
+  color: var(--ses-text-color);
+  background: var(--ses-bg-color);
+  font: menu;
+  font-size: 14px;
+  line-height: 1.5;
+  &::backdrop { background: rgb(0 0 0 / 45%); }
+  h2 { margin: 0 0 8px; font-size: 20px; }
+  p { margin: 6px 0 12px; }
+  .ses-manager-list { max-height: 220px; overflow-y: auto; }
+  .ses-manager-row { display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 3px; }
+  .ses-manager-row span { flex: 1; overflow-wrap: anywhere; }
+  form { display: grid; gap: 10px; margin-block: 14px; }
+  form label { display: grid; gap: 4px; }
+  input:not([type="checkbox"]) { box-sizing: border-box; width: 100%; padding: 8px; background: var(--ses-bg-color); color: inherit; border: 1px solid var(--ses-border-color); border-radius: 5px; }
+  button { cursor: pointer; min-height: 32px; padding: 6px 12px; border: 1px solid var(--ses-border-color); border-radius: 5px; color: inherit; background: var(--ses-hover-bg); }
+  button[hidden] { display: none; }
+  button:disabled { opacity: .6; cursor: default; }
+  [data-ses-error]:empty { display: none; }
+  [data-ses-error] { border-inline-start: 3px solid currentColor; padding-inline-start: 9px; }
+  [data-ses-action="close"] { display: block; margin-inline-start: auto; }
 }
 
 @media -moz-pref("zen.tabs.vertical.right-side") {

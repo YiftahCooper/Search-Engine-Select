@@ -1,50 +1,57 @@
-<h1 align="center">Search Engine Select</h1>
-<div align="center">
-    <a href="https://zen-browser.app/">
-        <img width="240" alt="zen-badge-dark" src="https://raw.githubusercontent.com/heyitszenithyt/zen-browser-badges/fb14dcd72694b7176d141c774629df76af87514e/light/zen-badge-light.png" />
-    </a>
-</div>
+# Search Engine Select
 
-Search Engine Select is a user script for **Zen Browser** that adds a floating UI to switch search engines directly from a search results page. This script provides an easy and intuitive way to quickly perform the same search on different engines.
+Version **1.1.33**, maintained in [YiftahCooper/Search-Engine-Select](https://github.com/YiftahCooper/Search-Engine-Select). This fork adds engine management and repairs duplicate-control lifecycle issues in [Vertex-Mods/Search-Engine-Select](https://github.com/Vertex-Mods/Search-Engine-Select), based on version 1.1.32 at commit `b58353d29d9cca5c431e3b3989a74f07eb4953ce`. Original author: Bibek Bhusal. Original license: MIT. The original source remains available in Git history; provenance is in `UPSTREAM.json`.
 
-https://github.com/user-attachments/assets/52a6b810-77ee-4a04-b239-8d59e01478ef
+## What changed
 
-## 🌟 Features
+- One controller owns the floating selector in each browser window. Repeated initialization, script reload, and an enable/disable race cannot leave multiple controls or listener sets behind.
+- Disable/unload removes controls, observers, pending timers, and startup callbacks. Late asynchronous work cannot recreate or overwrite a newer control.
+- The selector menu now includes **Manage engines…**. Uncheck a browser engine to remove it from this selector, or check it to restore it. Zen's own search-engine configuration is unaffected.
+- Add a custom engine with a name and an HTTPS search URL, such as `https://example.com/search?q={searchTerms}`. The URL must contain exactly one `{searchTerms}` placeholder in the path or query. Custom engines have a Remove button.
+- Custom searches encode Hebrew and reserved URL characters correctly. Changes refresh the selector. A stale settings window cannot silently overwrite changes made in another window.
+- Keyboard users can open the selector, activate engine buttons, and close the engine list with Escape. The manager uses a native HTML dialog.
 
-- **Auto-Detection**: Automatically detects the current search engine and search term on supported results pages.
-- **Vertical Dragging**: Reposition the UI anywhere along the right side of your screen.
-- **Smart Switching**: Quick search engine switching with various interaction modes:
-  - **Left-click:** Search in the current tab.
-  - **Right-click:** Open search in a background tab.
-  - **Ctrl+Click:** Open in a new tab and create a Split View.
-  - **Alt+Click:** Open search in a Glance view.
-- **Highly Customizable**: Change the size and theme of the switcher to match your Zen setup.
+## Install through Sine
 
-## ⚙️ Installation Guide
+Use Sine's custom GitHub-repository installation with this repository link:
 
-1. Install latest version of [Sine](https://github.com/CosmoCreeper/Sine) (if you haven't already).
-2. Restart Zen Browser.
-3. Open settings and go to the `Sine` tab.
-4. Search for Search Engine Select.
-5. Click Install.
-6. A toast for restart should appear — click on that to restart Zen.
+**https://github.com/YiftahCooper/Search-Engine-Select**
 
-## 🎨 Customization & Preferences
+Choose the `main` branch if Sine asks. This mod includes JavaScript; Sine must already be configured to permit custom JavaScript mods for it to run. Sine's `sine.allow-unsafe-js` setting is global to custom mods, not permission for just this repository.
 
-You can customize the script's behavior via `about:config`.
+The runtime files are `theme.json`, `preferences.json`, `style.css`, and generated `search-engine-select.uc.js`. This fork retains the original mod ID and is intended to **replace** the upstream mod. Do not load both copies together. Restart Zen once after installation to clear any old upstream script/listeners still in memory.
 
-| Preference                                         | Type    | Default    | Description                                                       |
-| -------------------------------------------------- | ------- | ---------- | ----------------------------------------------------------------- |
-| `extension.search-engine-select.enabled`           | Boolean | `true`     | Toggles the entire feature on or off.                             |
-| `extension.search-engine-select.remember-position` | Boolean | `true`     | Saves the vertical position of the UI.                            |
-| `extension.search-engine-select.size`              | String  | `"normal"` | UI Scale (`small`, `normal`, `large`).                            |
-| `extension.search-engine-select.theme`             | String  | `"dark"`   | Visual style (`dark`, `light`, `amoled`).                         |
-| `extension.search-engine-select.debug-mode`        | Boolean | `false`    | Enables detailed logging in the Browser Console (`Ctrl+Shift+J`). |
+Once running, open the floating selector, choose **Manage engines…**, and make changes there. Settings save immediately. **Done** closes the manager. Custom engine configuration is stored in `extension.search-engine-select.engines`. Invalid existing data is retained; the manager offers an explicit backup-and-reset action instead of overwriting it silently.
 
-## 🙏 Credits and Acknowledgements
+For a first check, search in DuckDuckGo, confirm one floating selector appears, then use Manage engines to hide/restore an engine and add a custom one. The source has automated coverage, but native Zen/Sine UI behavior has not yet been verified. See `VERIFICATION.md` for exact evidence boundaries.
 
-This mod is released through [Vertex Mods](https://github.com/Vertex-Mods/), and I, [Bibek Bhusal](https://github.com/BibekBhusal0), am the creator of this mod.
+## Development and verification
 
-## 📜 License
+Edit `src/switcher.js`, `src/engines.js`, or `src/manager.js`, then run:
 
-This is licensed under MIT license. Check [License](./LICENSE) for more details.
+```powershell
+npm run build
+npm test
+npm run check
+node --check search-engine-select.uc.js
+```
+
+Dependencies are pinned in `package-lock.json`; development tests use jsdom. See `VERIFICATION.md` for coverage and proof limits.
+
+Install development dependencies with `npm ci --ignore-scripts`. `node_modules`, npm cache, local upstream snapshots, and publication receipts are excluded from the published source.
+
+## Deliberately unchanged
+
+The report of the selector appearing on unrelated websites remains deferred, as requested. Existing upstream search-page detection and click-destination rules remain in place. This work does not add support for engines that require POST submissions.
+
+## Review checklist in an authorized disposable Zen profile
+
+- [ ] One control after startup, repeated enable/disable, Sine reload, and a new window.
+- [ ] DuckDuckGo and Google searches switch with the same query, including Hebrew.
+- [ ] Hide/restore a browser engine without changing Zen's native engine list.
+- [ ] Add, use, and remove a custom HTTPS engine.
+- [ ] Manager is visible, readable, and keyboard accessible; Escape and Done restore focus.
+- [ ] Dragged position, size, theme, split views, and existing click routing still work.
+- [ ] Disabling/unloading removes all UI; no stale control returns after navigation.
+
+Unchecked items are not proven by the Node test suite.
