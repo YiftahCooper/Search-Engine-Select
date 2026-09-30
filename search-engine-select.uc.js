@@ -3,8 +3,8 @@
 // @name            Search Engine Select
 // @description     Adds a floating UI to switch search engines on a search results page.
 // @author          Bibek Bhusal
-// @version         1.1.34
-// @lastUpdated     2026-09-29
+// @version         1.2.0
+// @lastUpdated     2026-09-30
 // @ignorecache
 // @homepage        https://github.com/YiftahCooper/Search-Engine-Select
 // ==/UserScript==
@@ -18,26 +18,38 @@
   window[ownerKey]?.unload();
 
   // utils/favicon.js
-  function googleFaviconAPI(domainOrUrl, size = 32) {
-    let domain;
+  const genericSearchIcon = 'chrome://browser/skin/search-glass.svg';
+  function searchEngineIcons(engine) {
+    const candidates = [];
+    if (engine?.iconURI?.spec === genericSearchIcon) return [genericSearchIcon];
+    if (engine?.iconURI?.spec) candidates.push(engine.iconURI.spec);
     try {
-      domain = new URL(domainOrUrl).hostname;
-    } catch {
-      domain = domainOrUrl;
-    }
-    return `https://s2.googleusercontent.com/s2/favicons?domain_url=https://${domain}&sz=${size}`;
+      const url = new URL(engine?.sesIconOrigin || engine?.getSubmission('')?.uri?.spec);
+      if (['https:', 'http:'].includes(url.protocol) && !url.username && !url.password) {
+        candidates.push(`${url.origin}/favicon.ico`);
+        // Retain the native fallback only for public-looking DNS names. Never
+        // disclose configured engines, IP literals or local names to Google.
+        const host = url.hostname.toLowerCase().replace(/\.$/, '');
+        const publicName = /^[a-z0-9.-]+\.[a-z]{2,}$/.test(host) &&
+          !/(^|\.)(localhost|local|internal|intranet|lan|home|home\.arpa|test|invalid|example|onion)$/.test(host);
+        if (!engine.sesId && publicName)
+          candidates.push(`https://s2.googleusercontent.com/s2/favicons?domain_url=https://${host}&sz=32`);
+      }
+    } catch {}
+    return [...new Set([...candidates, genericSearchIcon])];
   }
-  function getSearchEngineFavicon(engine) {
-    if (engine?.iconURI?.spec)
-      return engine.iconURI.spec;
-    try {
-      let submissionUrl = engine.getSubmission("test_query")?.uri.spec;
-      if (submissionUrl)
-        return googleFaviconAPI(submissionUrl);
-    } catch {
-      return "chrome://browser/skin/search-glass.svg";
-    }
-    return "chrome://browser/skin/search-glass.svg";
+  function setSearchEngineIcon(img, engine) {
+    const candidates = searchEngineIcons(engine);
+    let index = 0;
+    img.alt = '';
+    img.setAttribute('referrerpolicy', 'no-referrer');
+    const advance = () => {
+      // Install the handler before src, and remove it at the terminal fallback.
+      // Each candidate is attempted at most once per rendered image.
+      img.onerror = index < candidates.length - 1 ? advance : null;
+      img.src = candidates[index++];
+    };
+    advance();
   }
 
   // utils/startup-finish.js
@@ -171,7 +183,7 @@
 
   // Selector-only configuration. Never writes to the browser search service.
 const ENGINE_SETTINGS_PREF = 'extension.search-engine-select.engines';
-const emptyEngineSettings = () => ({ version: 1, hidden: [], custom: [] });
+const emptyEngineSettings = () => ({ version: 2, hidden: [], custom: [], order: [], overrides: [] });
 function engineKey(engine) {
   return engine ? (engine.sesId || `native:${engine.id || engine.name}`) : null;
 }
@@ -192,14 +204,23 @@ function readEngineSettings() {
   if (!raw) return { raw, settings: emptyEngineSettings(), error: '' };
   try {
     const value = JSON.parse(raw);
-    if (value?.version !== 1 || !Array.isArray(value.hidden) || !Array.isArray(value.custom) || value.hidden.length > 200 || value.custom.length > 100 || value.hidden.some(id => typeof id !== 'string')) throw new Error();
+    if (![1, 2].includes(value?.version) || !Array.isArray(value.hidden) || !Array.isArray(value.custom) || value.hidden.length > 200 || value.custom.length > 100 || value.hidden.some(id => typeof id !== 'string')) throw new Error();
     const ids = new Set(), names = new Set();
     const custom = value.custom.map(item => {
       const engine = validateCustomEngine(item);
       if (typeof engine.id !== 'string' || !/^custom-[a-zA-Z0-9-]+$/.test(engine.id) || ids.has(engine.id) || names.has(engine.name.toLowerCase())) throw new Error();
       ids.add(engine.id); names.add(engine.name.toLowerCase()); return engine;
     });
-    return { raw, settings: { version: 1, hidden: [...new Set(value.hidden)], custom }, error: '' };
+    const order = value.version === 1 ? [] : value.order;
+    const overrides = value.version === 1 ? [] : value.overrides;
+    if (!Array.isArray(order) || order.length > 300 || order.some(id => typeof id !== 'string') || new Set(order).size !== order.length || !Array.isArray(overrides) || overrides.length > 200) throw new Error();
+    const nativeIds = new Set();
+    const checkedOverrides = overrides.map(item => {
+      const engine = validateCustomEngine(item);
+      if (typeof engine.id !== 'string' || !engine.id.startsWith('native:') || nativeIds.has(engine.id)) throw new Error();
+      nativeIds.add(engine.id); return engine;
+    });
+    return { raw, settings: { version: 2, hidden: [...new Set(value.hidden)], custom, order, overrides: checkedOverrides }, error: '' };
   } catch {
     return { raw, settings: emptyEngineSettings(), error: 'Saved engine settings are invalid. They have been preserved. Reset them below to edit the list.' };
   }
@@ -208,14 +229,35 @@ function saveEngineSettings(settings, expectedRaw) {
   if (Services.prefs.getStringPref(ENGINE_SETTINGS_PREF, '') !== expectedRaw) throw new Error('Engine settings changed in another window. Close and reopen Configure.');
   Services.prefs.setStringPref(ENGINE_SETTINGS_PREF, JSON.stringify(settings));
 }
-async function allSearchEngines() {
-  const installed = await getVisibleEngines();
-  const custom = readEngineSettings().settings.custom.map(item => ({
+function configuredEngine(item) {
+  return {
     name: item.name, sesId: item.id,
-    iconURI: { spec: 'chrome://browser/skin/search-glass.svg' },
+    // Configured URLs use their own origin, never a third-party favicon lookup.
+    sesIconOrigin: new URL(item.url.replace('{searchTerms}', '')).origin,
     getSubmission(term) { return { uri: { spec: item.url.replace('{searchTerms}', encodeURIComponent(term)) }, postData: null }; }
-  }));
-  return [...installed, ...custom];
+  };
+}
+function orderedEngines(installed, settings) {
+  const overrides = new Map(settings.overrides.map(item => [item.id, item]));
+  const engines = [...installed.map(engine => overrides.has(engineKey(engine)) ? configuredEngine(overrides.get(engineKey(engine))) : engine), ...settings.custom.map(configuredEngine)];
+  const rank = new Map(settings.order.map((id, index) => [id, index]));
+  return engines.sort((a, b) => (rank.get(engineKey(a)) ?? Infinity) - (rank.get(engineKey(b)) ?? Infinity));
+}
+async function allSearchEngines(forDetection = false) {
+  const installed = await getVisibleEngines();
+  const settings = readEngineSettings().settings;
+  const configured = orderedEngines(installed, settings);
+  // Native URLs still identify a search after an override or removal from this selector.
+  return forDetection ? [...configured, ...installed.filter(engine => settings.overrides.some(item => item.id === engineKey(engine)))] : configured;
+}
+function engineTemplate(engine) {
+  const marker = 'SES_EDIT_QUERY_MARKER';
+  try {
+    const submission = engine.getSubmission(marker);
+    if (submission?.postData) return '';
+    const url = submission?.uri?.spec || '';
+    return url.includes(marker) ? url.replace(marker, '{searchTerms}') : '';
+  } catch { return ''; }
 }
 
   function createEngineSettings(container) {
@@ -227,19 +269,39 @@ async function allSearchEngines() {
   const dialog = element('section'); dialog.id = 'ses-engine-manager';
   dialog.setAttribute('aria-labelledby', 'ses-manager-heading');
   const heading = element('h2', 'Search engines'); heading.id = 'ses-manager-heading';
-  const intro = element('p', 'Choose engines for this selector. These choices do not change Zen’s search settings.');
+  const intro = element('p', 'Choose engines for this selector. Drag a handle to reorder, or use Move up / Move down. These choices do not change Zen’s search settings.');
   const error = element('p'); error.dataset.sesError = ''; error.setAttribute('role', 'alert');
   const list = element('div'); list.className = 'ses-manager-list';
+  const removed = element('details'); removed.className = 'ses-removed-engines';
+  const removedSummary = element('summary', 'Removed engines');
+  const removedList = element('div'); removed.append(removedSummary, removedList);
   const form = element('form'); form.noValidate = true;
   const nameLabel = element('label', 'Engine name');
   const name = element('input'); name.name = 'ses-name'; name.maxLength = 80; nameLabel.append(name);
   const urlLabel = element('label', 'Search URL — use {searchTerms} for the query');
   const url = element('input'); url.name = 'ses-url'; url.type = 'url'; url.maxLength = 2048; url.placeholder = 'https://example.com/search?q={searchTerms}'; urlLabel.append(url);
   const add = element('button', 'Add engine'); add.type = 'submit'; add.dataset.sesAction = 'add';
-  form.append(nameLabel, urlLabel, add);
+  const cancel = element('button', 'Cancel edit'); cancel.type = 'button'; cancel.hidden = true;
+  form.append(nameLabel, urlLabel, add, cancel);
   const reset = element('button', 'Back up and reset invalid settings'); reset.type = 'button'; reset.hidden = true;
-  let revision = 0, rendered;
+  let revision = 0, rendered, editing = null, editRaw, dragging = null;
+  const dragType = 'application/x-ses-engine-reorder';
+  function clearDropIndicator() {
+    for (const row of list.querySelectorAll('[data-ses-drop]')) delete row.dataset.sesDrop;
+  }
+  function cancelDrag() {
+    dragging = null; clearDropIndicator();
+    for (const row of list.querySelectorAll('.ses-reordering')) row.classList.remove('ses-reordering');
+  }
+  const onDragKey = event => { if (event.key === 'Escape') cancelDrag(); };
+  document.addEventListener('keydown', onDragKey, true);
+  document.addEventListener('dragend', cancelDrag);
+  document.addEventListener('drop', cancelDrag);
+  list.addEventListener('dragleave', event => { if (!list.contains(event.relatedTarget)) clearDropIndicator(); });
+  function clearEdit() { editing = null; editRaw = undefined; name.value = ''; url.value = ''; add.textContent = 'Add engine'; cancel.hidden = true; }
+  cancel.addEventListener('click', clearEdit);
   async function render() {
+    cancelDrag();
     const currentRevision = ++revision;
     const state = readEngineSettings();
     let engines;
@@ -250,6 +312,7 @@ async function allSearchEngines() {
     error.textContent = state.error; reset.hidden = !state.error;
     add.disabled = !!state.error;
     list.replaceChildren();
+    removedList.replaceChildren();
     const { settings } = state;
     const mutate = change => {
       try {
@@ -257,33 +320,116 @@ async function allSearchEngines() {
         saveEngineSettings(next, state.raw); render();
       } catch (problem) { error.textContent = problem.message; }
     };
-    for (const engine of engines) {
-      const row = element('label'); row.className = 'ses-manager-row';
-      const checkbox = element('input'); checkbox.type = 'checkbox'; checkbox.disabled = !!state.error;
-      const key = engineKey(engine); checkbox.checked = !settings.hidden.includes(key);
-      checkbox.addEventListener('change', () => mutate(next => {
-        next.hidden = next.hidden.filter(id => id !== key);
-        if (!checkbox.checked) next.hidden.push(key);
-      }));
-      row.append(checkbox, element('span', engine.name)); list.append(row);
+    const ordered = orderedEngines(engines, settings);
+    const active = ordered.filter(engine => !settings.hidden.includes(engineKey(engine)));
+    const hiddenEngines = ordered.filter(engine => settings.hidden.includes(engineKey(engine)));
+    removed.hidden = !hiddenEngines.length;
+    removedSummary.textContent = `Removed engines (${hiddenEngines.length})`;
+    for (const engine of hiddenEngines) {
+      const key = engineKey(engine);
+      const row = element('div'); row.className = 'ses-manager-row'; row.dataset.sesEngine = key;
+      const restore = element('button', 'Restore'); restore.type = 'button'; restore.disabled = !!state.error;
+      restore.dataset.sesAction = 'restore-native'; restore.setAttribute('aria-label', `Restore ${engine.name}`);
+      restore.addEventListener('click', () => mutate(next => { next.hidden = next.hidden.filter(id => id !== key); }));
+      row.append(element('span', engine.name), restore); removedList.append(row);
     }
-    for (const engine of settings.custom) {
+    for (const [index, engine] of active.entries()) {
       const row = element('div'); row.className = 'ses-manager-row';
-      const remove = element('button', 'Remove'); remove.type = 'button'; remove.dataset.sesAction = 'remove-custom';
-      remove.setAttribute('aria-label', `Remove ${engine.name}`);
-      remove.addEventListener('click', () => mutate(next => { next.custom = next.custom.filter(item => item.id !== engine.id); next.hidden = next.hidden.filter(id => id !== engine.id); }));
-      row.append(element('span', engine.name), remove); list.append(row);
+      const key = engineKey(engine), native = key.startsWith('native:'); row.dataset.sesEngine = key;
+      const handle = element('span', '⠿'); handle.className = 'ses-reorder-handle';
+      handle.draggable = !state.error; handle.title = `Drag to reorder ${engine.name}`;
+      handle.setAttribute('aria-hidden', 'true'); row.append(handle);
+      handle.addEventListener('dragstart', event => {
+        cancelDrag();
+        if (state.error || !event.dataTransfer || !row.isConnected || currentRevision !== revision) { event.preventDefault(); return; }
+        const token = crypto.randomUUID();
+        event.dataTransfer.setData(dragType, token); event.dataTransfer.effectAllowed = 'move';
+        dragging = { key, token, revision: currentRevision }; row.classList.add('ses-reordering');
+      });
+      const internalDrag = event => dragging?.revision === currentRevision && currentRevision === revision && row.isConnected &&
+        event.dataTransfer && !event.dataTransfer.files?.length && Array.from(event.dataTransfer.types || []).includes(dragType);
+      const dropSide = event => {
+        const bounds = row.getBoundingClientRect();
+        return event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after';
+      };
+      row.addEventListener('dragover', event => {
+        clearDropIndicator();
+        if (!internalDrag(event) || dragging.key === key) return;
+        event.preventDefault(); event.dataTransfer.dropEffect = 'move'; row.dataset.sesDrop = dropSide(event);
+      });
+      row.addEventListener('drop', event => {
+        const source = dragging?.key;
+        const valid = internalDrag(event) && event.dataTransfer.getData(dragType) === dragging.token;
+        const side = dropSide(event); cancelDrag();
+        if (!valid || source === key) return;
+        event.preventDefault();
+        const activeIds = active.map(engineKey), reordered = activeIds.filter(id => id !== source);
+        reordered.splice(reordered.indexOf(key) + (side === 'after' ? 1 : 0), 0, source);
+        if (reordered.every((id, position) => id === activeIds[position])) return;
+        mutate(next => {
+          // Retain removed engines' slots so restoring one preserves its position.
+          let position = 0;
+          const ids = ordered.map(engineKey).map(id => settings.hidden.includes(id) ? id : reordered[position++]);
+          next.order = [...ids, ...next.order.filter(id => !ids.includes(id))];
+        });
+      });
+      const label = element('label'); label.className = 'ses-manager-label';
+      if (native) {
+        const checkbox = element('input'); checkbox.type = 'checkbox'; checkbox.disabled = !!state.error;
+        checkbox.checked = !settings.hidden.includes(key); checkbox.setAttribute('aria-label', `Show ${engine.name} in selector`);
+        checkbox.addEventListener('change', () => mutate(next => {
+          next.hidden = next.hidden.filter(id => id !== key);
+          if (!checkbox.checked) next.hidden.push(key);
+        }));
+        label.append(checkbox);
+      }
+      label.append(element('span', engine.name)); row.append(label);
+      const actions = element('div'); actions.className = 'ses-manager-actions'; row.append(actions);
+      const button = (text, action, callback) => {
+        const control = element('button', text); control.type = 'button'; control.dataset.sesAction = action;
+        control.disabled = !!state.error; control.setAttribute('aria-label', `${text} ${engine.name}`);
+        control.addEventListener('click', callback); actions.append(control); return control;
+      };
+      for (const [action, text, delta] of [['up', 'Move up', -1], ['down', 'Move down', 1]]) {
+        const control = button(text, action, () => mutate(next => {
+          const ids = ordered.map(engineKey), current = ids.indexOf(key), target = ids.indexOf(engineKey(active[index + delta]));
+          [ids[current], ids[target]] = [ids[target], ids[current]];
+          next.order = [...ids, ...next.order.filter(id => !ids.includes(id))];
+        }));
+        control.disabled ||= index + delta < 0 || index + delta >= active.length;
+      }
+      button('Edit', 'edit', () => {
+        editing = key; editRaw = state.raw; name.value = engine.name; url.value = engineTemplate(engine);
+        add.textContent = 'Save engine'; cancel.hidden = false; name.focus();
+      });
+      button('Remove', native ? 'remove-native' : 'remove-custom', () => mutate(next => {
+        if (native) {
+          next.hidden = next.hidden.filter(id => id !== key);
+          next.hidden.push(key);
+        } else {
+          next.custom = next.custom.filter(item => item.id !== key);
+          next.hidden = next.hidden.filter(id => id !== key);
+          next.order = next.order.filter(id => id !== key);
+        }
+        if (editing === key) clearEdit();
+      }));
+      list.append(row);
     }
   }
   form.addEventListener('submit', event => {
     event.preventDefault();
     try {
       if (!rendered || rendered.error) throw new Error('Reset the invalid settings before adding engines.');
-      if (rendered.settings.custom.length >= 100) throw new Error('The selector supports up to 100 custom engines.');
-      const engine = validateCustomEngine({ id: `custom-${crypto.randomUUID()}`, name: name.value, url: url.value });
-      if (rendered.settings.custom.some(item => item.name.toLowerCase() === engine.name.toLowerCase())) throw new Error('A custom engine with that name already exists.');
-      const next = { ...rendered.settings, custom: [...rendered.settings.custom, engine] };
-      saveEngineSettings(next, rendered.raw); name.value = ''; url.value = ''; render();
+      if (!editing && rendered.settings.custom.length >= 100) throw new Error('The selector supports up to 100 custom engines.');
+      const engine = validateCustomEngine({ id: editing || `custom-${crypto.randomUUID()}`, name: name.value, url: url.value });
+      const native = engine.id.startsWith('native:');
+      if (!native && rendered.settings.custom.some(item => item.id !== editing && item.name.toLowerCase() === engine.name.toLowerCase())) throw new Error('A custom engine with that name already exists.');
+      const next = JSON.parse(JSON.stringify(rendered.settings));
+      const collection = native ? 'overrides' : 'custom';
+      const existing = next[collection].findIndex(item => item.id === engine.id);
+      if (existing < 0) next[collection].push(engine);
+      else next[collection][existing] = engine;
+      saveEngineSettings(next, editing ? editRaw : rendered.raw); clearEdit(); render();
     } catch (problem) { error.textContent = problem.message; }
   });
   reset.addEventListener('click', () => {
@@ -294,9 +440,12 @@ async function allSearchEngines() {
       saveEngineSettings(emptyEngineSettings(), rendered.raw); render();
     } catch (problem) { error.textContent = problem.message; }
   });
-  dialog.append(heading, intro, list, error, form, reset);
+  dialog.append(heading, intro, list, removed, error, form, reset);
   container.append(dialog); render();
-  return {element:dialog,refresh:render,reset(){name.value='';url.value='';render();},destroy(){++revision;dialog.remove();}};
+  return {element:dialog,refresh:render,reset(){clearEdit();removed.open=false;render();},destroy(){
+    ++revision;cancelDrag();document.removeEventListener('keydown',onDragKey,true);
+    document.removeEventListener('dragend',cancelDrag);document.removeEventListener('drop',cancelDrag);dialog.remove();
+  }};
 }
 
   // Mount dynamic engine controls in Sine's existing Configure dialog.
@@ -314,7 +463,11 @@ function mountSineSettings() {
   function mount() {
     if (disposed) return;
     const next = document.querySelector('[mod-id="search-engine-select"] .sineItemPreferenceDialogContent');
-    if (next === container && controls?.element.isConnected) return;
+    if (next === container && controls?.element.isConnected) {
+      // Sine appends its own preferences asynchronously after building the card.
+      if (container.lastElementChild !== controls.element) container.append(controls.element);
+      return;
+    }
     unmount(); if (!next) return;
     container = next; controls = createEngineSettings(container);
     dialog = container.closest('dialog'); dialog?.addEventListener('close', reset);
@@ -464,7 +617,7 @@ function mountSineSettings() {
     async buildEngineRegexCache(generation = this._generation) {
       const revision = ++this._engineRevision;
       PREFS2.debugLog("Building engine regex cache..."), this._engineCache = [];
-      let engines = await allSearchEngines(), PLACEHOLDER = "SEARCH_TERM_PLACEHOLDER_E6A8D";
+      let engines = await allSearchEngines(true), PLACEHOLDER = "SEARCH_TERM_PLACEHOLDER_E6A8D";
       if (generation !== this._generation || revision !== this._engineRevision) return;
       for (let engine of engines)
         try {
@@ -542,8 +695,7 @@ function mountSineSettings() {
       if (!this._currentSearchInfo || !this._engineSelect)
         return;
       let { engine, host } = this._currentSearchInfo, img = parseElement("<img>");
-      img.alt = '';
-      img.src = engine ? getSearchEngineFavicon(engine) : "chrome://browser/skin/zen-icons/search-glass.svg";
+      setSearchEngineIcon(img, engine);
       let label = engine ? engine.name : host || "Unknown search", nameSpan = parseElement(`<span>${escapeXmlAttribute(label)}</span>`);
       this._engineSelect.replaceChildren(img, nameSpan);
       this._engineSelect.setAttribute('aria-label', `Search engine: ${label}. Choose another engine`);
@@ -616,14 +768,14 @@ function mountSineSettings() {
     },
     async handleEngineClick(event, newEngine) {
       const generation = this._generation;
-      if (event.preventDefault(), event.stopPropagation(), engineKey(newEngine) === engineKey(this._currentSearchInfo?.engine)) {
-        this.hideOptionsOnClickOutside();
-        return;
-      }
+      event.preventDefault(); event.stopPropagation();
       if (!this._currentSearchInfo?.term)
         return;
       let term = this._currentSearchInfo.term, submission = newEngine.getSubmission(term), newUrl = submission?.uri?.spec, where = null;
       if (!newUrl) return;
+      if (engineKey(newEngine) === engineKey(this._currentSearchInfo?.engine) && newUrl === gBrowser.selectedBrowser.currentURI.spec) {
+        this.hideOptionsOnClickOutside(); return;
+      }
       if (event.button === 0 && event.ctrlKey && !event.altKey && !event.shiftKey)
         where = "vsplit";
       else if (event.button === 0 && event.altKey)
@@ -692,20 +844,11 @@ function mountSineSettings() {
           <span>${escapeXmlAttribute(engine.name)}</span>
         </button>
       `), img = parseElement("<img>");
-        img.src = getSearchEngineFavicon(engine), option.prepend(img), option.addEventListener("mousedown", (e) => this.handleEngineClick(e, engine)), this._engineOptions.append(option);
-        img.alt = '';
+        setSearchEngineIcon(img, engine), option.prepend(img), option.addEventListener("mousedown", (e) => this.handleEngineClick(e, engine)), this._engineOptions.append(option);
         option.addEventListener('click', event => {
           if (event.detail === 0) this.handleEngineClick(event, engine);
         });
       });
-      const manage = document.createElementNS('http://www.w3.org/1999/xhtml', 'button');
-      manage.type = 'button'; manage.dataset.sesAction = 'manage'; manage.textContent = 'Mod settings...';
-      manage.addEventListener('click', event => {
-        event.stopPropagation();
-        this.hideOptionsOnClickOutside();
-        window.openTrustedLinkIn('about:preferences?searchEngineSelectSettings=1#sineMods', 'tab');
-      });
-      options.append(manage);
     },
     startDrag(e) {
       if (e.button !== 0)
@@ -749,10 +892,30 @@ function mountSineSettings() {
   };
   const removers = [];
   const isSettingsPage = /^about:(preferences|settings)(?:[?#]|$)/.test(window.location.href);
+  // Legacy releases had no registered owner to unload. Reclaim only this mod's
+  // exact root ID; observe late injection as well as roots already in the DOM.
+  let rootObserver;
+  if (!isSettingsPage) {
+    const removeOrphans = scope => {
+      const roots = [...scope.querySelectorAll('#search-engine-switcher-container')];
+      if (scope.id === 'search-engine-switcher-container') roots.unshift(scope);
+      for (const root of roots) {
+        if (root !== SearchEngineSwitcher._container) root.remove();
+      }
+    };
+    rootObserver = new MutationObserver(records => {
+      for (const record of records) for (const node of record.addedNodes) {
+        if (node.nodeType === 1) removeOrphans(node);
+      }
+    });
+    rootObserver.observe(document.documentElement, {childList: true, subtree: true});
+    removeOrphans(document);
+  }
   let settingsBridge;
   const owner = { unload() {
     if (SearchEngineSwitcher._disposed) return;
     SearchEngineSwitcher._disposed = true;
+    rootObserver?.disconnect();
     window.removeEventListener('load', init);
     window.removeEventListener('unload', owner.unload);
     if (isSettingsPage) settingsBridge?.destroy();

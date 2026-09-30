@@ -186,18 +186,6 @@
   }
 }
 
-#ses-engine-options [data-ses-action="manage"] {
-  display: block;
-  width: 100%;
-  min-height: 32px;
-  margin-top: 5px;
-  padding: 7px;
-  border: 1px solid var(--ses-border-color);
-  border-radius: 5px;
-  color: var(--ses-text-color);
-  background: var(--ses-bg-color);
-  cursor: pointer;
-}
 #search-engine-switcher-container button:focus-visible,
 #ses-engine-manager :focus-visible {
   outline: 2px solid currentColor;
@@ -211,7 +199,7 @@
   width: 100%;
   margin-block: 18px 0;
   padding-block: 16px 0;
-  border-top: 1px solid var(--ses-border-color);
+  border-top: 0;
   color: inherit;
   background: transparent;
   color-scheme: inherit;
@@ -230,6 +218,112 @@
   button:disabled { opacity: .6; cursor: default; }
   [data-ses-error]:empty { display: none; }
   [data-ses-error] { border-inline-start: 3px solid currentColor; padding-inline-start: 9px; }
+}
+
+/* Isolate selector layout from browser preference-page element rules. */
+#ses-engine-options {
+  box-sizing: border-box;
+  overflow-x: hidden;
+  max-width: calc(100vw - 16px);
+}
+#ses-engine-options .ses-engine-option {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+}
+#ses-engine-options .ses-engine-option span {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+[mod-id="search-engine-select"] #ses-engine-manager {
+  display: block;
+  min-height: 0;
+  height: auto;
+  flex: 0 1 auto;
+  margin: 12px 0 0;
+  padding: 0;
+  border: 0;
+}
+[mod-id="search-engine-select"] #ses-engine-manager p {
+  display: block;
+  min-height: 0;
+  margin: 4px 0 10px;
+  padding: 0;
+}
+[mod-id="search-engine-select"] #ses-engine-manager input,
+[mod-id="search-engine-select"] #ses-engine-manager button,
+[mod-id="search-engine-select"] #ses-engine-manager label {
+  margin: 0;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+[mod-id="search-engine-select"] #ses-engine-manager .ses-manager-list {
+  max-height: 280px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+[mod-id="search-engine-select"] #ses-engine-manager .ses-manager-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 6px 0;
+  min-height: 0;
+}
+[mod-id="search-engine-select"] #ses-engine-manager .ses-manager-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 140px;
+  overflow-wrap: anywhere;
+}
+[mod-id="search-engine-select"] #ses-engine-manager .ses-manager-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+[mod-id="search-engine-select"] #ses-engine-manager .ses-manager-actions button {
+  padding: 4px 8px;
+  min-height: 30px;
+}
+[mod-id="search-engine-select"] #ses-engine-manager .ses-reorder-handle {
+  flex: 0 0 24px;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  user-select: none;
+  font-size: 24px;
+  border-radius: 4px;
+}
+[mod-id="search-engine-select"] #ses-engine-manager .ses-reorder-handle:hover {
+  background: var(--ses-hover-bg);
+}
+[mod-id="search-engine-select"] #ses-engine-manager .ses-reorder-handle[draggable="false"] {
+  cursor: default;
+  opacity: .4;
+}
+[mod-id="search-engine-select"] #ses-engine-manager .ses-reordering {
+  opacity: .6;
+}
+[mod-id="search-engine-select"] #ses-engine-manager .ses-manager-row[data-ses-drop="before"] {
+  box-shadow: inset 0 3px 0 currentColor;
+}
+[mod-id="search-engine-select"] #ses-engine-manager .ses-manager-row[data-ses-drop="after"] {
+  box-shadow: inset 0 -3px 0 currentColor;
+}
+[mod-id="search-engine-select"] #ses-engine-manager .ses-removed-engines {
+  margin: 8px 0;
+  padding: 0;
+}
+[mod-id="search-engine-select"] #ses-engine-manager .ses-removed-engines[hidden] {
+  display: none;
+}
+[mod-id="search-engine-select"] #ses-engine-manager .ses-removed-engines summary {
+  cursor: pointer;
+  padding: 4px 0;
 }
 
 @media -moz-pref("zen.tabs.vertical.right-side") {
