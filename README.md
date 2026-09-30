@@ -1,9 +1,10 @@
 # Search Engine Select
 
-Version **1.2.0**, maintained in [YiftahCooper/Search-Engine-Select](https://github.com/YiftahCooper/Search-Engine-Select). This fork adds engine management and repairs duplicate-control lifecycle issues in [Vertex-Mods/Search-Engine-Select](https://github.com/Vertex-Mods/Search-Engine-Select), based on version 1.1.32 at commit `b58353d29d9cca5c431e3b3989a74f07eb4953ce`. Original author: Bibek Bhusal. Original license: MIT. The original source remains available in Git history; provenance is in `UPSTREAM.json`.
+Version **1.2.1**, maintained in [YiftahCooper/Search-Engine-Select](https://github.com/YiftahCooper/Search-Engine-Select). This fork adds engine management and repairs duplicate-control lifecycle issues in [Vertex-Mods/Search-Engine-Select](https://github.com/Vertex-Mods/Search-Engine-Select), based on version 1.1.32 at commit `b58353d29d9cca5c431e3b3989a74f07eb4953ce`. Original author: Bibek Bhusal. Original license: MIT. The original source remains available in Git history; provenance is in `UPSTREAM.json`.
 
 ## What changed
 
+- Version 1.2.1 moves the registered script to `search-engine-select-runtime.uc.js` once. Sine can retain the old script URL as non-unloadable after loading upstream releases with no cleanup callback; updating the file at that URL then leaves the old running code in place. The new entry lets the current owner run and reclaim stale panels in those existing windows. Later releases retain this new entry URL.
 - One controller owns the floating selector in each browser window. Repeated initialization, script reload, and an enable/disable race cannot leave multiple controls or listener sets behind.
 - The owner also removes orphan selector roots left by older releases and late duplicate roots. Cleanup targets only this mod's exact root ID. Historical anonymous callbacks cannot be unregistered, but their additional roots are removed while the new owner is active.
 - Disable/unload removes controls, observers, pending timers, and startup callbacks. Late asynchronous work cannot recreate or overwrite a newer control.
@@ -23,7 +24,7 @@ Use Sine's custom GitHub-repository installation with this repository link:
 
 Choose the `main` branch if Sine asks. This mod includes JavaScript; Sine must already be configured to permit custom JavaScript mods for it to run. Sine's `sine.allow-unsafe-js` setting is global to custom mods, not permission for just this repository.
 
-The runtime files are `theme.json`, `preferences.json`, `style.css`, and generated `search-engine-select.uc.js`. This fork retains the original mod ID and is intended to **replace** the upstream mod. Do not load both copies together. The fork registers an unload handler for Sine updates and reclaims leftover selector roots while active. It cannot unregister callbacks from an older script that never exposed cleanup.
+The runtime files are `theme.json`, `preferences.json`, `style.css`, and generated `search-engine-select-runtime.uc.js`. This fork retains the original mod ID and is intended to **replace** the upstream mod. Do not load both copies together. The fork registers an unload handler for Sine updates and reclaims leftover selector roots while active. It cannot unregister callbacks from an older script that never exposed cleanup.
 
 Open **Sine > Search Engine Select > Configure** to manage engines alongside the other settings. No search-results page is needed, and the settings remain available when the floating selector is turned off. Changes save immediately and refresh active selector windows. Close Sine's dialog when finished. Custom configuration uses `extension.search-engine-select.engines`; invalid data is preserved until you explicitly back it up and reset it.
 
@@ -41,4 +42,6 @@ Unedited browser engines retain their supplied icon first. If absent or unavaila
 
 ## Testing status
 
-The source and generated package pass automated configuration, lifecycle, icon-fallback and simulated UI checks. Native Zen/Sine drag behavior, popup geometry, cross-mod interaction and actual remote icon availability still need testing.
+The source and generated package pass automated configuration, lifecycle, icon-fallback and simulated UI checks. The hot-update regression starts two genuine upstream controls and models Sine's non-unloadable URL gate, then checks one current control, live hide/restore changes, repeated updates, and disable/re-enable. The legacy fixture is included under `tests/fixtures` so this regression runs from a clean checkout. Native Zen/Sine hot-update activation, drag behavior, popup geometry, cross-mod interaction and actual remote icon availability still need testing.
+
+Legacy anonymous callbacks remain in memory until their browser window closes. Version 1.2.1 reclaims their visible roots while its current owner is active; a full browser restart clears those inaccessible callbacks. Updating the files alone is not proof that Sine has loaded the new entry into an existing window.

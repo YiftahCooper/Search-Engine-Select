@@ -3,7 +3,7 @@
 // @name            Search Engine Select
 // @description     Adds a floating UI to switch search engines on a search results page.
 // @author          Bibek Bhusal
-// @version         1.2.0
+// @version         1.2.1
 // @lastUpdated     2026-09-30
 // @ignorecache
 // @homepage        https://github.com/YiftahCooper/Search-Engine-Select
