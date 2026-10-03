@@ -1,8 +1,10 @@
 # Search Engine Select
 
-Version **1.2.1**, maintained in [YiftahCooper/Search-Engine-Select](https://github.com/YiftahCooper/Search-Engine-Select). This fork adds engine management and repairs duplicate-control lifecycle issues in [Vertex-Mods/Search-Engine-Select](https://github.com/Vertex-Mods/Search-Engine-Select), based on version 1.1.32 at commit `b58353d29d9cca5c431e3b3989a74f07eb4953ce`. Original author: Bibek Bhusal. Original license: MIT. The original source remains available in Git history; provenance is in `UPSTREAM.json`.
+Version **1.2.2**, maintained in [YiftahCooper/Search-Engine-Select](https://github.com/YiftahCooper/Search-Engine-Select). This fork adds engine management and repairs duplicate-control lifecycle issues in [Vertex-Mods/Search-Engine-Select](https://github.com/Vertex-Mods/Search-Engine-Select), based on version 1.1.32 at commit `b58353d29d9cca5c431e3b3989a74f07eb4953ce`. Original author: Bibek Bhusal. Original license: MIT. The original source remains available in Git history; provenance is in `UPSTREAM.json`.
 
 ## What changed
+
+- Version 1.2.2 restricts detection to installed or explicitly configured engine search URLs. An ordinary site with a `q`, `search` or pagination parameter no longer becomes an unknown engine. Navigating away closes the selector and clears its old query; entering an address in the URL bar does not create a search. The built-in fallback search icon now uses a resource present in Zen.
 
 - Version 1.2.1 moves the registered script to `search-engine-select-runtime.uc.js` once. Sine can retain the old script URL as non-unloadable after loading upstream releases with no cleanup callback; updating the file at that URL then leaves the old running code in place. The new entry lets the current owner run and reclaim stale panels in those existing windows. Later releases retain this new entry URL.
 - One controller owns the floating selector in each browser window. Repeated initialization, script reload, and an enable/disable race cannot leave multiple controls or listener sets behind.
@@ -34,7 +36,7 @@ For a first check, search in DuckDuckGo, confirm one floating selector appears, 
 
 ## Supported behavior and limitations
 
-Search-page detection and click destinations follow the upstream implementation. Engines requiring POST submissions are not supported.
+Search-page detection matches an installed or explicitly configured GET search URL: its origin, path and query field, including fixed mode parameters. Parameter order and extra URL parameters are allowed. Native attribution/encoding parameters such as `t`, `client` and `source` are not required; user-configured fixed values are preserved as detection constraints. Specific configured modes, such as Images, take precedence over a general engine at the same endpoint. A site search appears only if it is an installed or explicitly configured engine. Engines requiring POST submissions are not supported. An engine that redirects to a different origin or search path may need its final search URL configured explicitly.
 
 Custom and edited engines request only `/favicon.ico` at the configured URL's origin, then use the generic search icon if loading fails. These icon requests contain no search path, query parameters, fragment, or search terms, and send no referrer. This makes a network request to that origin (including private or local origins you configure); it does not send custom or edited engine hosts to a third-party favicon service. There is no HTML scraping or discovery of `rel="icon"` links, so sites that publish icons only at other paths use the generic fallback.
 
@@ -42,6 +44,6 @@ Unedited browser engines retain their supplied icon first. If absent or unavaila
 
 ## Testing status
 
-The source and generated package pass automated configuration, lifecycle, icon-fallback and simulated UI checks. The hot-update regression starts two genuine upstream controls and models Sine's non-unloadable URL gate, then checks one current control, live hide/restore changes, repeated updates, and disable/re-enable. The legacy fixture is included under `tests/fixtures` so this regression runs from a clean checkout. Native Zen/Sine hot-update activation, drag behavior, popup geometry, cross-mod interaction and actual remote icon availability still need testing.
+The source and generated package pass automated configuration, lifecycle, icon-fallback, search-page detection and simulated UI checks. Version 1.2.2 has regressions for unconfigured site-search URLs, same-tab navigation, ordinary address-bar navigation, reordered query parameters, configured search modes and encoded path queries. The fallback SVG was also checked against the installed Zen resource archive; this is not a native rendering test. The hot-update regression starts two genuine upstream controls and models Sine's non-unloadable URL gate, then checks one current control, live hide/restore changes, repeated updates, and disable/re-enable. The legacy fixture is included under `tests/fixtures` so this regression runs from a clean checkout. Native Zen/Sine hot-update activation, drag behavior, popup geometry, cross-mod interaction and actual remote icon availability still need testing.
 
 Legacy anonymous callbacks remain in memory until their browser window closes. Version 1.2.1 reclaims their visible roots while its current owner is active; a full browser restart clears those inaccessible callbacks. Updating the files alone is not proof that Sine has loaded the new entry into an existing window.

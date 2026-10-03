@@ -181,6 +181,8 @@
         width: 16px;
         height: 16px;
         flex-shrink: 0;
+        fill: var(--ses-text-color);
+        -moz-context-properties: fill;
       }
     }
   }

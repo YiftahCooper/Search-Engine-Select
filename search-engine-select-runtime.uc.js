@@ -3,8 +3,8 @@
 // @name            Search Engine Select
 // @description     Adds a floating UI to switch search engines on a search results page.
 // @author          Bibek Bhusal
-// @version         1.2.1
-// @lastUpdated     2026-09-30
+// @version         1.2.2
+// @lastUpdated     2026-10-03
 // @ignorecache
 // @homepage        https://github.com/YiftahCooper/Search-Engine-Select
 // ==/UserScript==
@@ -18,7 +18,7 @@
   window[ownerKey]?.unload();
 
   // utils/favicon.js
-  const genericSearchIcon = 'chrome://browser/skin/search-glass.svg';
+  const genericSearchIcon = 'chrome://global/skin/icons/search-glass.svg';
   function searchEngineIcons(engine) {
     const candidates = [];
     if (engine?.iconURI?.spec === genericSearchIcon) return [genericSearchIcon];
@@ -258,6 +258,46 @@ function engineTemplate(engine) {
     const url = submission?.uri?.spec || '';
     return url.includes(marker) ? url.replace(marker, '{searchTerms}') : '';
   } catch { return ''; }
+}
+
+  // A query parameter alone is not evidence of a search engine. Match an actual
+// configured GET submission's origin, path, query field and fixed mode values.
+function searchUrlMatcher(engine) {
+  const marker = 'SEARCH_TERM_PLACEHOLDER_E6A8D';
+  const submission = engine.getSubmission(marker);
+  if (!submission?.uri?.spec || submission.postData) return null;
+  const template = new URL(submission.uri.spec);
+  if (!['https:', 'http:'].includes(template.protocol) || template.username || template.password) return null;
+  const escape = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = (value, capture) => new RegExp(`^${value.split(marker).map(escape).join(capture)}$`);
+  const pathQuery = template.pathname.includes(marker);
+  const queryFields = [...template.searchParams].filter(([,value]) => value.includes(marker));
+  if (Number(pathQuery) + queryFields.length !== 1) return null;
+  const queryField = queryFields[0];
+  const pathPattern = pattern(template.pathname, '([^/]+)');
+  const termPattern = queryField && pattern(queryField[1], '(.+)');
+  // Native attribution/encoding values vary by entry point and may disappear
+  // on redirect. User-configured fixed parameters remain exact constraints.
+  const attribution = new Set(['t', 'client', 'source', 'sourceid', 'form', 'ie', 'oe', 'rlz']);
+  const fixed = [...template.searchParams].filter(([key,value]) => !value.includes(marker) && (engine.sesId || !attribution.has(key.toLowerCase())));
+  const fixedGroups = [...new Set(fixed.map(([key]) => key))].map(key => [key, fixed.filter(([name]) => name === key).map(([,value]) => value).sort()]);
+  return {engine, specificity: fixed.length, match(url) {
+    if (url.origin !== template.origin || url.username || url.password) return null;
+    const path = url.pathname.match(pathPattern);
+    if (!path || fixedGroups.some(([key,expected]) => {
+      const actual = url.searchParams.getAll(key).sort();
+      return actual.length !== expected.length || actual.some((value,index) => value !== expected[index]);
+    })) return null;
+    let term;
+    if (pathQuery) {
+      try { term = decodeURIComponent(path[1]); } catch { return null; }
+    } else {
+      const values = url.searchParams.getAll(queryField[0]);
+      if (values.length !== 1) return null;
+      term = values[0].match(termPattern)?.[1];
+    }
+    return term?.trim() ? {engine, term: term.trim()} : null;
+  }};
 }
 
   function createEngineSettings(container) {
@@ -502,12 +542,6 @@ function mountSineSettings() {
   async function getVisibleEngines() {
     return (await getSearchService()).getVisibleEngines();
   }
-  async function getEngineByName(name) {
-    return (await getSearchService()).getEngineByName(name);
-  }
-  async function getDefaultEngine() {
-    return (await getSearchService()).getDefault();
-  }
 
   // utils/open-link.js
   async function openLink(url, where = "new tab") {
@@ -616,69 +650,32 @@ function mountSineSettings() {
     },
     async buildEngineRegexCache(generation = this._generation) {
       const revision = ++this._engineRevision;
-      PREFS2.debugLog("Building engine regex cache..."), this._engineCache = [];
-      let engines = await allSearchEngines(true), PLACEHOLDER = "SEARCH_TERM_PLACEHOLDER_E6A8D";
+      const engines = await allSearchEngines(true);
       if (generation !== this._generation || revision !== this._engineRevision) return;
-      for (let engine of engines)
+      const cache = [];
+      for (const engine of engines) {
         try {
-          let submission = engine.getSubmission(PLACEHOLDER);
-          if (!submission)
-            continue;
-          let regexString = submission.uri.spec.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), placeholderRegex = PLACEHOLDER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-          regexString = regexString.replace(placeholderRegex, "([^&]*)"), this._engineCache.push({
-            engine,
-            regex: new RegExp(`^${regexString}`)
-          });
-        } catch (e) {
-          PREFS2.debugError(`Failed to process engine ${engine.name}`, e);
-        }
+          const matcher = searchUrlMatcher(engine);
+          if (matcher) cache.push(matcher);
+        } catch (error) { PREFS2.debugError(`Failed to process engine ${engine.name}`, error); }
+      }
+      // Prefer specific modes (for example Images) over a general search at the
+      // same endpoint, independently of the user's display order.
+      this._engineCache = cache.sort((a,b) => b.specificity - a.specificity);
     },
-    matchUrl(url) {
-      if (!url)
-        return null;
-      for (let item of this._engineCache) {
-        let match = url.match(item.regex);
-        if (match && match[1])
-          try {
-            let term = decodeURIComponent(match[1].replace(/\+/g, " "));
-            return PREFS2.debugLog(`Matched: Engine='${item.engine.name}', Term='${term}'`), { engine: item.engine, term };
-          } catch {
-            continue;
-          }
+    matchUrl(value) {
+      let url;
+      try { url = new URL(value); } catch { return null; }
+      for (const matcher of this._engineCache) {
+        const result = matcher.match(url);
+        if (result) return result;
       }
-      return this.matchGenericSearchUrl(url);
-    },
-    matchGenericSearchUrl(url) {
-      let parsed;
-      try {
-        parsed = new URL(url);
-      } catch {
-        return null;
-      }
-      let term = null, searchParams = ["q", "query", "search", "text", "p", "wd"];
-      for (let key of searchParams) {
-        let value = parsed.searchParams.get(key);
-        if (value && value.trim()) {
-          term = value.trim();
-          break;
-        }
-      }
-      if (!term)
-        return null;
-      let host = parsed.hostname.toLowerCase().replace(/[^a-z0-9]/g, ""), engine = null;
-      for (let { engine: candidate } of this._engineCache) {
-        let nameKey = candidate.name.toLowerCase().replace(/[^a-z0-9]/g, "");
-        if (nameKey && host.includes(nameKey)) {
-          engine = candidate;
-          break;
-        }
-      }
-      return PREFS2.debugLog(`Generic match: Engine='${engine?.name ?? "unknown"}', Term='${term}'`), { engine, term, host: parsed.hostname };
+      return null;
     },
     updateSwitcherVisibility() {
-      let url = gBrowser.selectedBrowser.currentURI.spec, newSearchInfo = this.matchUrl(url);
-      if (newSearchInfo)
-        this._currentSearchInfo = newSearchInfo, this._show();
+      this._currentSearchInfo = this.matchUrl(gBrowser.selectedBrowser.currentURI.spec);
+      if (this._currentSearchInfo) this._show();
+      else this._hide();
     },
     _show() {
       if (!this._container)
@@ -689,7 +686,7 @@ function mountSineSettings() {
       if (!this._container)
         return;
       if (this._container.style.display = "none", this._engineOptions)
-        this._engineOptions.style.display = "none", this._container.classList.remove("options-visible");
+        this.hideOptionsOnClickOutside();
     },
     updateSelectedEngineDisplay() {
       if (!this._currentSearchInfo || !this._engineSelect)
@@ -748,23 +745,6 @@ function mountSineSettings() {
       if (!rect.width)
         return;
       this._container.style.setProperty("--ses-pane-x", `${rect.x}px`), this._container.style.setProperty("--ses-pane-width", `${rect.width}px`);
-    },
-    async handleURLBarKey(event) {
-      if (event.key !== "Enter")
-        return;
-      const generation = this._generation;
-      let engine, term = gURLBar.value.trim();
-      if (!term)
-        return;
-      try {
-        let engineName = document.getElementById("urlbar-search-mode-indicator-title").innerText.trim();
-        engine = await getEngineByName(engineName);
-      } catch {
-        PREFS2.debugLog("Search indicator not found. Using default engine."), engine = await getDefaultEngine();
-      }
-      if (generation !== this._generation || this._disposed || !this._container) return;
-      if (engine && term)
-        PREFS2.debugLog(`URL bar search detected. Engine: ${engine.name}, Term: ${term}`), this._currentSearchInfo = { engine, term }, this._show();
     },
     async handleEngineClick(event, newEngine) {
       const generation = this._generation;
@@ -876,14 +856,14 @@ function mountSineSettings() {
           "nsIWebProgressListener",
           "nsISupportsWeakReference"
         ])
-      }, this._boundListeners.handleTabSelect = this.handleTabSelect.bind(this), this._boundListeners.handleURLBarKey = this.handleURLBarKey.bind(this), this._boundListeners.toggleOptions = this.toggleOptions.bind(this), this._boundListeners.hideOptionsOnClickOutside = this.hideOptionsOnClickOutside.bind(this), this._boundListeners.startDrag = this.startDrag.bind(this), this._boundListeners.doDrag = this.doDrag.bind(this), this._boundListeners.stopDrag = this.stopDrag.bind(this), this._boundListeners.onSplitViewActivated = this.handleSplitOrGlance.bind(this), this._boundListeners.onSplitViewDeactivated = this.handleSplitOrGlance.bind(this), this._boundListeners.onCompactModeToggled = this.updatePosition.bind(this), this._boundListeners.onResize = this.updatePosition.bind(this), this._boundListeners.onTabClose = () => {
+      }, this._boundListeners.handleTabSelect = this.handleTabSelect.bind(this), this._boundListeners.toggleOptions = this.toggleOptions.bind(this), this._boundListeners.hideOptionsOnClickOutside = this.hideOptionsOnClickOutside.bind(this), this._boundListeners.startDrag = this.startDrag.bind(this), this._boundListeners.doDrag = this.doDrag.bind(this), this._boundListeners.stopDrag = this.stopDrag.bind(this), this._boundListeners.onSplitViewActivated = this.handleSplitOrGlance.bind(this), this._boundListeners.onSplitViewDeactivated = this.handleSplitOrGlance.bind(this), this._boundListeners.onCompactModeToggled = this.updatePosition.bind(this), this._boundListeners.onResize = this.updatePosition.bind(this), this._boundListeners.onTabClose = () => {
         this.updatePosition(), this.schedulePosition();
-      }, this._resizeObserver = new ResizeObserver(() => this.updatePosition()), this.observeSelectedBrowser(), gBrowser.tabContainer.addEventListener("TabSelect", this._boundListeners.handleTabSelect), gBrowser.addTabsProgressListener(this._progressListener), gURLBar.inputField.addEventListener("keydown", this._boundListeners.handleURLBarKey), this._engineSelect.addEventListener("click", this._boundListeners.toggleOptions), document.addEventListener("click", this._boundListeners.hideOptionsOnClickOutside), this._dragHandle.addEventListener("mousedown", this._boundListeners.startDrag), gBrowser.tabContainer.addEventListener("TabClose", this._boundListeners.onTabClose), window.addEventListener("ZenViewSplitter:SplitViewActivated", this._boundListeners.onSplitViewActivated), window.addEventListener("ZenViewSplitter:SplitViewDeactivated", this._boundListeners.onSplitViewDeactivated), window.addEventListener("ZenCompactMode:Toggled", this._boundListeners.onCompactModeToggled), window.addEventListener("resize", this._boundListeners.onResize);
+      }, this._resizeObserver = new ResizeObserver(() => this.updatePosition()), this.observeSelectedBrowser(), gBrowser.tabContainer.addEventListener("TabSelect", this._boundListeners.handleTabSelect), gBrowser.addTabsProgressListener(this._progressListener), this._engineSelect.addEventListener("click", this._boundListeners.toggleOptions), document.addEventListener("click", this._boundListeners.hideOptionsOnClickOutside), this._dragHandle.addEventListener("mousedown", this._boundListeners.startDrag), gBrowser.tabContainer.addEventListener("TabClose", this._boundListeners.onTabClose), window.addEventListener("ZenViewSplitter:SplitViewActivated", this._boundListeners.onSplitViewActivated), window.addEventListener("ZenViewSplitter:SplitViewDeactivated", this._boundListeners.onSplitViewDeactivated), window.addEventListener("ZenCompactMode:Toggled", this._boundListeners.onCompactModeToggled), window.addEventListener("resize", this._boundListeners.onResize);
     },
     removeEventListeners() {
       if (gBrowser.tabContainer.removeEventListener("TabSelect", this._boundListeners.handleTabSelect), this._progressListener)
         gBrowser.removeTabsProgressListener(this._progressListener), this._progressListener = null;
-      gURLBar.inputField.removeEventListener("keydown", this._boundListeners.handleURLBarKey), this._engineSelect?.removeEventListener("click", this._boundListeners.toggleOptions), document.removeEventListener("click", this._boundListeners.hideOptionsOnClickOutside), this._dragHandle?.removeEventListener("mousedown", this._boundListeners.startDrag), document.removeEventListener("mousemove", this._boundListeners.doDrag), document.removeEventListener("mouseup", this._boundListeners.stopDrag), gBrowser.tabContainer.removeEventListener("TabClose", this._boundListeners.onTabClose), window.removeEventListener("ZenViewSplitter:SplitViewActivated", this._boundListeners.onSplitViewActivated), window.removeEventListener("ZenViewSplitter:SplitViewDeactivated", this._boundListeners.onSplitViewDeactivated), window.removeEventListener("ZenCompactMode:Toggled", this._boundListeners.onCompactModeToggled), window.removeEventListener("resize", this._boundListeners.onResize);
+      this._engineSelect?.removeEventListener("click", this._boundListeners.toggleOptions), document.removeEventListener("click", this._boundListeners.hideOptionsOnClickOutside), this._dragHandle?.removeEventListener("mousedown", this._boundListeners.startDrag), document.removeEventListener("mousemove", this._boundListeners.doDrag), document.removeEventListener("mouseup", this._boundListeners.stopDrag), gBrowser.tabContainer.removeEventListener("TabClose", this._boundListeners.onTabClose), window.removeEventListener("ZenViewSplitter:SplitViewActivated", this._boundListeners.onSplitViewActivated), window.removeEventListener("ZenViewSplitter:SplitViewDeactivated", this._boundListeners.onSplitViewDeactivated), window.removeEventListener("ZenCompactMode:Toggled", this._boundListeners.onCompactModeToggled), window.removeEventListener("resize", this._boundListeners.onResize);
       try {
         this._resizeObserver?.disconnect();
       } catch {}
