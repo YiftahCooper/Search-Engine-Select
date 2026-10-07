@@ -3,7 +3,7 @@
 // @name            Search Engine Select
 // @description     Adds a floating UI to switch search engines on a search results page.
 // @author          Bibek Bhusal
-// @version         1.3.0
+// @version         1.3.1
 // @lastUpdated     2026-10-07
 // @ignorecache
 // @homepage        https://github.com/YiftahCooper/Search-Engine-Select
@@ -22,6 +22,7 @@
   function searchEngineIcons(engine) {
     if (engine?.sesIcon?.kind === 'builtin') return [builtinIcon(engine.sesIcon.name),genericSearchIcon];
     if (engine?.sesIcon?.kind === 'url') return [engine.sesIcon.data,genericSearchIcon];
+    if (engine?.sesDefaultIcon) return [engine.sesDefaultIcon,genericSearchIcon];
     const candidates = [];
     if (engine?.iconURI?.spec === genericSearchIcon) return [genericSearchIcon];
     if (engine?.iconURI?.spec) candidates.push(engine.iconURI.spec);
@@ -183,19 +184,37 @@
   }
   var PREFS2 = SearchEngineSelectPREFS;
 
-  // Available choices only: nothing is installed until the user adds a preset.
+  // Default engines appear in the same editable list as browser/custom engines.
+// Stable legacy IDs retain existing 1.3.0 edits, icons and order.
 const SES_PRESETS = [
-  {id:'google-images',name:'Google Images',url:'https://www.google.com/search?udm=2&q={searchTerms}',icon:'picture'},
+  {id:'google-images',name:'Google Images',url:'https://www.google.com/search?udm=2&q={searchTerms}'},
   {id:'youtube',name:'YouTube',url:'https://www.youtube.com/results?search_query={searchTerms}'},
-  {id:'google-maps',name:'Google Maps',url:'https://www.google.com/maps/search/?api=1&query={searchTerms}',icon:'map'},
-  {id:'google-scholar',name:'Google Scholar',url:'https://scholar.google.com/scholar?q={searchTerms}',icon:'book'},
+  {id:'google-maps',name:'Google Maps',url:'https://www.google.com/maps/search/?api=1&query={searchTerms}'},
+  {id:'google-scholar',name:'Google Scholar',url:'https://scholar.google.com/scholar?q={searchTerms}'},
   {id:'reddit',name:'Reddit',url:'https://www.reddit.com/search/?q={searchTerms}'},
-  {id:'reddit-google',name:'Reddit via Google',url:'https://www.google.com/search?q=site%3Areddit.com%20{searchTerms}',iconOrigin:'https://www.reddit.com'},
-  {id:'pdf-google',name:'PDFs via Google',url:'https://www.google.com/search?q={searchTerms}%20filetype%3Apdf',icon:'pdf'}
+  {id:'reddit-google',name:'Reddit via Google',url:'https://www.google.com/search?q=site%3Areddit.com%20{searchTerms}'},
+  {id:'pdf-google',name:'PDFs via Google',url:'https://www.google.com/search?q={searchTerms}%20filetype%3Apdf'}
 ];
 function presetForEngine(id) { return SES_PRESETS.find(preset => `custom-preset-${preset.id}` === id); }
 
   const SES_ICON_NAMES = {picture:'Picture',pdf:'PDF document',discussion:'Discussion',map:'Map',book:'Book',search:'Search'};
+// Self-contained service marks: no favicon request can turn a default into a
+// generic placeholder. Filtered Google searches carry an explicit visual badge.
+function defaultEngineIcon(id) {
+  const google='<path fill="#4285F4" d="M23 12.3c0-.8-.1-1.5-.2-2.3H12v4.3h6.2a5.3 5.3 0 0 1-2.3 3.5v2.8h3.7C21.8 18.6 23 15.7 23 12.3z"/><path fill="#34A853" d="M12 23c3.1 0 5.7-1 7.6-2.8l-3.7-2.8c-1 .7-2.3 1.1-3.9 1.1-3 0-5.5-2-6.4-4.7H1.8v2.9A11.5 11.5 0 0 0 12 23z"/><path fill="#FBBC05" d="M5.6 13.8a7 7 0 0 1 0-4.4V6.5H1.8a11.5 11.5 0 0 0 0 10.2z"/><path fill="#EA4335" d="M12 4.7c1.7 0 3.2.6 4.4 1.8l3.3-3.3A11 11 0 0 0 12 0 11.5 11.5 0 0 0 1.8 6.5l3.8 2.9C6.5 6.7 9 4.7 12 4.7z"/>';
+  const reddit='<circle cx="16" cy="16" r="15" fill="#ff4500"/><g fill="white"><ellipse cx="16" cy="19" rx="10" ry="7"/><circle cx="6" cy="16" r="3"/><circle cx="26" cy="16" r="3"/><circle cx="23" cy="8" r="2.4"/></g><path d="m16 13 2-7 5 2" fill="none" stroke="white" stroke-width="2"/><g fill="#ff4500"><circle cx="12" cy="18" r="1.7"/><circle cx="20" cy="18" r="1.7"/></g><path d="M12 22q4 3 8 0" fill="none" stroke="#ff4500" stroke-width="1.5" stroke-linecap="round"/>';
+  const drawings={
+    'google-images':`<g transform="translate(1 1) scale(.95)">${google}</g><rect x="15" y="17" width="16" height="14" rx="3" fill="#4285f4" stroke="white"/><path d="m18 27 4-4 3 3 3-2" fill="none" stroke="white" stroke-width="1.7"/><circle cx="26" cy="21" r="1.5" fill="white"/>`,
+    'youtube':'<rect x="1" y="5" width="30" height="22" rx="7" fill="#ff0033"/><path d="m13 10 9 6-9 6z" fill="white"/>',
+    'google-maps':'<path d="M16 1C9 1 5 6 5 12c0 8 9 17 11 19 2-2 11-11 11-19C27 6 23 1 16 1z" fill="#34a853"/><path d="M16 1C9 1 5 6 5 12c0 3 1 6 3 9L23 4a11 11 0 0 0-7-3z" fill="#4285f4"/><path d="m8 21 5-6-7-7c-2 4-1 8 2 13z" fill="#fbbc04"/><path d="m13 15 10-11 3 4-9 10z" fill="#ea4335"/><circle cx="16" cy="12" r="4" fill="white"/>',
+    'google-scholar':'<path d="m1 12 15-10 15 10-15 10z" fill="#4285f4"/><path d="m16 2 15 10-15 10z" fill="#1967d2"/><circle cx="16" cy="22" r="8" fill="#a1c2fa"/><path d="M8 22a8 8 0 0 1 16 0z" fill="#4285f4"/>',
+    'reddit':reddit,
+    'reddit-google':`<g transform="scale(.8)">${reddit}</g><circle cx="24" cy="24" r="8" fill="white"/><g transform="translate(18 18) scale(.52)">${google}</g>`,
+    'pdf-google':`<path d="M4 1h16l8 8v22H4z" fill="#e94235"/><path d="M20 1v8h8" fill="#ffb3ad"/><text x="16" y="22" text-anchor="middle" fill="white" font-family="Arial,sans-serif" font-size="10" font-weight="bold">PDF</text><circle cx="25" cy="7" r="7" fill="white"/><g transform="translate(20 2) scale(.44)">${google}</g>`
+  };
+  if (!Object.hasOwn(drawings,id)) return undefined;
+  return 'data:image/svg+xml,'+encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">${drawings[id]}</svg>`);
+}
 function builtinIcon(name) {
   const drawings = {
     picture:'<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8" cy="8" r="1"/><path d="m3 17 6-6 4 4 3-3 5 5"/>',
@@ -273,7 +292,7 @@ async function fetchCustomIcon(value, signal) {
 
   // Selector-only configuration. Never writes to the browser search service.
 const ENGINE_SETTINGS_PREF = 'extension.search-engine-select.engines';
-const emptyEngineSettings = () => ({ version: 3, hidden: [], custom: [], order: [], overrides: [] });
+const emptyEngineSettings = () => ({ version: 4, removed: [], hidden: [], custom: [], order: [], overrides: [] });
 function engineKey(engine) {
   return engine ? (engine.sesId || `native:${engine.id || engine.name}`) : null;
 }
@@ -295,7 +314,7 @@ function readEngineSettings() {
   if (!raw) return { raw, settings: emptyEngineSettings(), error: '' };
   try {
     const value = JSON.parse(raw);
-    if (![1, 2, 3].includes(value?.version) || !Array.isArray(value.hidden) || !Array.isArray(value.custom) || value.hidden.length > 200 || value.custom.length > 100 || value.hidden.some(id => typeof id !== 'string')) throw new Error();
+    if (![1, 2, 3, 4].includes(value?.version) || !Array.isArray(value.hidden) || !Array.isArray(value.custom) || value.hidden.length > 200 || value.custom.length > 100 || value.hidden.some(id => typeof id !== 'string')) throw new Error();
     const ids = new Set(), names = new Set();
     const custom = value.custom.map(item => {
       const engine = validateCustomEngine(item);
@@ -311,7 +330,9 @@ function readEngineSettings() {
       if (typeof engine.id !== 'string' || !engine.id.startsWith('native:') || nativeIds.has(engine.id)) throw new Error();
       nativeIds.add(engine.id); return engine;
     });
-    return { raw, settings: { version: 3, hidden: [...new Set(value.hidden)], custom, order, overrides: checkedOverrides }, error: '' };
+    const removed = value.version < 4 ? value.hidden : value.removed;
+    if (!Array.isArray(removed) || removed.length > 300 || removed.some(id => typeof id !== 'string')) throw new Error();
+    return { raw, settings: { version: 4, removed: [...new Set(removed)], hidden: [...new Set(value.hidden)], custom, order, overrides: checkedOverrides }, error: '' };
   } catch {
     return { raw, settings: emptyEngineSettings(), error: 'Saved engine settings are invalid. They have been preserved. Reset them below to edit the list.' };
   }
@@ -324,18 +345,25 @@ function saveEngineSettings(settings, expectedRaw) {
 }
 function configuredEngine(item) {
   const preset = presetForEngine(item.id);
-  const icon = item.icon || (preset?.icon ? {kind:'builtin',name:preset.icon} : undefined);
+  const icon = item.icon;
+  const defaultIcon = preset && item.url === preset.url ? defaultEngineIcon(preset.id) : undefined;
   return {
     name: item.name, sesId: item.id,
-    sesIcon: icon,
+    sesIcon: icon, sesDefaultIcon: defaultIcon,
     // Configured URLs use their own origin, never a third-party favicon lookup.
-    sesIconOrigin: preset?.iconOrigin && item.url === preset.url ? preset.iconOrigin : new URL(item.url.replace('{searchTerms}', '')).origin,
+    sesIconOrigin: new URL(item.url.replace('{searchTerms}', '')).origin,
     getSubmission(term) { return { uri: { spec: item.url.replace('{searchTerms}', encodeURIComponent(term)) }, postData: null }; }
   };
 }
 function orderedEngines(installed, settings) {
   const overrides = new Map(settings.overrides.map(item => [item.id, item]));
   const engines = [...installed.map(engine => overrides.has(engineKey(engine)) ? configuredEngine(overrides.get(engineKey(engine))) : engine), ...settings.custom.map(configuredEngine)];
+  for (const item of SES_PRESETS) {
+    const id = `custom-preset-${item.id}`;
+    // Keep existing edited entries and avoid duplicating a browser/custom engine.
+    if (!engines.some(engine => engineKey(engine) === id || engine.name.toLowerCase() === item.name.toLowerCase() || engineTemplate(engine) === item.url))
+      engines.push(configuredEngine({...item,id}));
+  }
   const rank = new Map(settings.order.map((id, index) => [id, index]));
   return engines.sort((a, b) => (rank.get(engineKey(a)) ?? Infinity) - (rank.get(engineKey(b)) ?? Infinity));
 }
@@ -414,13 +442,6 @@ function searchUrlMatcher(engine) {
   const removed = element('details'); removed.className = 'ses-removed-engines';
   const removedSummary = element('summary', 'Removed engines');
   const removedList = element('div'); removed.append(removedSummary, removedList);
-  const presets = element('div'); presets.className = 'ses-preset-picker';
-  const presetLabel = element('label','Add from presets');
-  const presetSelect = element('select'); presetSelect.name = 'ses-preset'; presetLabel.append(presetSelect);
-  const placeholder = element('option','Choose a preset…'); placeholder.value = ''; presetSelect.append(placeholder);
-  for (const preset of SES_PRESETS) { const option=element('option',preset.name);option.value=preset.id;presetSelect.append(option); }
-  const addPreset = element('button','Add preset'); addPreset.type='button';addPreset.dataset.sesAction='add-preset';
-  presets.append(presetLabel,addPreset);
   const form = element('form'); form.noValidate = true;
   const nameLabel = element('label', 'Engine name');
   const name = element('input'); name.name = 'ses-name'; name.maxLength = 80; nameLabel.append(name);
@@ -461,7 +482,10 @@ function searchUrlMatcher(engine) {
     else {
       const item = rendered && [...rendered.settings.custom,...rendered.settings.overrides].find(item=>item.id===editing);
       if(item) setSearchEngineIcon(preview,configuredEngine({...item,icon:undefined}));
-      else setSearchEngineIcon(preview,editingNative);
+      else {
+        const original = presetForEngine(editing);
+        setSearchEngineIcon(preview,original ? configuredEngine({...original,id:editing}) : editingNative);
+      }
     }
   }
   let editingNative;
@@ -512,11 +536,6 @@ function searchUrlMatcher(engine) {
     rendered = state;
     error.textContent = state.error; reset.hidden = !state.error;
     add.disabled = !!state.error || saving || !!previewController;
-    addPreset.disabled = !!state.error;
-    for (const option of presetSelect.options) if(option.value) {
-      const preset=SES_PRESETS.find(item=>item.id===option.value);
-      option.disabled=settingsHasPreset(state.settings,preset);
-    }
     list.replaceChildren();
     removedList.replaceChildren();
     const { settings } = state;
@@ -527,8 +546,8 @@ function searchUrlMatcher(engine) {
       } catch (problem) { error.textContent = problem.message; }
     };
     const ordered = orderedEngines(engines, settings);
-    const active = ordered.filter(engine => !settings.hidden.includes(engineKey(engine)));
-    const hiddenEngines = ordered.filter(engine => settings.hidden.includes(engineKey(engine)));
+    const active = ordered.filter(engine => !settings.removed.includes(engineKey(engine)));
+    const hiddenEngines = ordered.filter(engine => settings.removed.includes(engineKey(engine)));
     removed.hidden = !hiddenEngines.length;
     removedSummary.textContent = `Removed engines (${hiddenEngines.length})`;
     for (const engine of hiddenEngines) {
@@ -536,7 +555,7 @@ function searchUrlMatcher(engine) {
       const row = element('div'); row.className = 'ses-manager-row'; row.dataset.sesEngine = key;
       const restore = element('button', 'Restore'); restore.type = 'button'; restore.disabled = !!state.error;
       restore.dataset.sesAction = 'restore-native'; restore.setAttribute('aria-label', `Restore ${engine.name}`);
-      restore.addEventListener('click', () => mutate(next => { next.hidden = next.hidden.filter(id => id !== key); }));
+      restore.addEventListener('click', () => mutate(next => { next.hidden = next.hidden.filter(id => id !== key); next.removed = next.removed.filter(id => id !== key); }));
       row.append(element('span', engine.name), restore); removedList.append(row);
     }
     for (const [index, engine] of active.entries()) {
@@ -575,12 +594,12 @@ function searchUrlMatcher(engine) {
         mutate(next => {
           // Retain removed engines' slots so restoring one preserves its position.
           let position = 0;
-          const ids = ordered.map(engineKey).map(id => settings.hidden.includes(id) ? id : reordered[position++]);
+          const ids = ordered.map(engineKey).map(id => settings.removed.includes(id) ? id : reordered[position++]);
           next.order = [...ids, ...next.order.filter(id => !ids.includes(id))];
         });
       });
       const label = element('label'); label.className = 'ses-manager-label';
-      if (native) {
+      {
         const checkbox = element('input'); checkbox.type = 'checkbox'; checkbox.disabled = !!state.error;
         checkbox.checked = !settings.hidden.includes(key); checkbox.setAttribute('aria-label', `Show ${engine.name} in selector`);
         checkbox.addEventListener('change', () => mutate(next => {
@@ -613,10 +632,18 @@ function searchUrlMatcher(engine) {
         add.textContent = 'Save engine'; cancel.hidden = false; name.focus();
       });
       button('Remove', native ? 'remove-native' : 'remove-custom', () => mutate(next => {
-        if (native) {
+        if (native || presetForEngine(key)) {
+          next.removed = [...next.removed.filter(id => id !== key), key];
           next.hidden = next.hidden.filter(id => id !== key);
           next.hidden.push(key);
         } else {
+          // A manually added equivalent may have suppressed a shipped default.
+          // Removing it must not immediately make that default reappear.
+          for (const item of SES_PRESETS) if (item.name.toLowerCase() === engine.name.toLowerCase() || item.url === engineTemplate(engine)) {
+            const defaultId = `custom-preset-${item.id}`;
+            if (!next.removed.includes(defaultId)) next.removed.push(defaultId);
+            if (!next.hidden.includes(defaultId)) next.hidden.push(defaultId);
+          }
           next.custom = next.custom.filter(item => item.id !== key);
           next.hidden = next.hidden.filter(id => id !== key);
           next.order = next.order.filter(id => id !== key);
@@ -626,20 +653,6 @@ function searchUrlMatcher(engine) {
       list.append(row);
     }
   }
-  function settingsHasPreset(settings,preset) {
-    return settings.custom.some(item=>item.id===`custom-preset-${preset.id}` || item.url===preset.url || item.name.toLowerCase()===preset.name.toLowerCase());
-  }
-  addPreset.addEventListener('click',()=>{
-    try {
-      const preset=SES_PRESETS.find(item=>item.id===presetSelect.value);
-      if(!preset || !rendered || rendered.error) throw new Error('Choose an available preset.');
-      if(settingsHasPreset(rendered.settings,preset)) throw new Error('That preset is already in your list.');
-      if(rendered.settings.custom.length>=100) throw new Error('The selector supports up to 100 custom engines.');
-      const next=JSON.parse(JSON.stringify(rendered.settings));
-      next.custom.push(validateCustomEngine({id:`custom-preset-${preset.id}`,name:preset.name,url:preset.url}));
-      saveEngineSettings(next,rendered.raw);presetSelect.value='';render();
-    } catch(problem) {error.textContent=problem.message;}
-  });
   form.addEventListener('submit', async event => {
     event.preventDefault();
     if(saving || previewController) return;
@@ -662,6 +675,7 @@ function searchUrlMatcher(engine) {
       if (!native && rendered.settings.custom.some(item => item.id !== editing && item.name.toLowerCase() === engine.name.toLowerCase())) throw new Error('A custom engine with that name already exists.');
       const collection = native ? 'overrides' : 'custom';
       const existing = next[collection].findIndex(item => item.id === engine.id);
+      if (collection === 'custom' && existing < 0 && next.custom.length >= 100) throw new Error('The selector supports up to 100 custom engines.');
       if (existing < 0) next[collection].push(engine);
       else next[collection][existing] = engine;
       saveEngineSettings(next, expectedRaw); clearEdit(); render();
@@ -676,7 +690,7 @@ function searchUrlMatcher(engine) {
       saveEngineSettings(emptyEngineSettings(), rendered.raw); render();
     } catch (problem) { error.textContent = problem.message; }
   });
-  dialog.append(heading, intro, list, removed, presets, error, form, reset);
+  dialog.append(heading, intro, list, removed, error, form, reset);
   container.append(dialog); render();
   return {element:dialog,refresh:render,reset(){clearEdit();removed.open=false;render();},destroy(){
     disposed=true;changeDraft();++revision;cancelDrag();document.removeEventListener('keydown',onDragKey,true);
@@ -1013,7 +1027,8 @@ function mountSineSettings() {
       const engines = await allSearchEngines();
       if (generation !== this._generation || revision !== this._engineRevision || options !== this._engineOptions || !options) return;
       options.replaceChildren();
-      const hidden = new Set(readEngineSettings().settings.hidden);
+      const settings = readEngineSettings().settings;
+      const hidden = new Set([...settings.hidden,...settings.removed]);
       engines.filter(engine => !hidden.has(engineKey(engine))).forEach((engine) => {
         let option = parseElement(`
         <button type="button" class="ses-engine-option" title="Search with ${escapeXmlAttribute(engine.name)}">
