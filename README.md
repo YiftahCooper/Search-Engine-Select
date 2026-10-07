@@ -1,49 +1,61 @@
 # Search Engine Select
 
-Version **1.2.2**, maintained in [YiftahCooper/Search-Engine-Select](https://github.com/YiftahCooper/Search-Engine-Select). This fork adds engine management and repairs duplicate-control lifecycle issues in [Vertex-Mods/Search-Engine-Select](https://github.com/Vertex-Mods/Search-Engine-Select), based on version 1.1.32 at commit `b58353d29d9cca5c431e3b3989a74f07eb4953ce`. Original author: Bibek Bhusal. Original license: MIT. The original source remains available in Git history; provenance is in `UPSTREAM.json`.
+Version **1.3.0**, maintained in [YiftahCooper/Search-Engine-Select](https://github.com/YiftahCooper/Search-Engine-Select). Switch search engines from a floating selector on a search-results page. Manage the selector in **Sine > Search Engine Select > Configure**.
 
-## What changed
+This MIT-licensed fork is based on [Vertex-Mods/Search-Engine-Select](https://github.com/Vertex-Mods/Search-Engine-Select) version 1.1.32, commit `b58353d29d9cca5c431e3b3989a74f07eb4953ce`, by Bibek Bhusal. Original source is retained in Git history; provenance is in `UPSTREAM.json`.
 
-- Version 1.2.2 restricts detection to installed or explicitly configured engine search URLs. An ordinary site with a `q`, `search` or pagination parameter no longer becomes an unknown engine. Navigating away closes the selector and clears its old query; entering an address in the URL bar does not create a search. The built-in fallback search icon now uses a resource present in Zen.
+## New in 1.3.0
 
-- Version 1.2.1 moves the registered script to `search-engine-select-runtime.uc.js` once. Sine can retain the old script URL as non-unloadable after loading upstream releases with no cleanup callback; updating the file at that URL then leaves the old running code in place. The new entry lets the current owner run and reclaim stale panels in those existing windows. Later releases retain this new entry URL.
-- One controller owns the floating selector in each browser window. Repeated initialization, script reload, and an enable/disable race cannot leave multiple controls or listener sets behind.
-- The owner also removes orphan selector roots left by older releases and late duplicate roots. Cleanup targets only this mod's exact root ID. Historical anonymous callbacks cannot be unregistered, but their additional roots are removed while the new owner is active.
-- Disable/unload removes controls, observers, pending timers, and startup callbacks. Late asynchronous work cannot recreate or overwrite a newer control.
-- All settings are in **Sine > Search Engine Select > Configure**: enable/disable, position memory, size, theme, debug mode, and the engine list. Drag an engine's dotted handle and drop above or below another row, or use **Move up / Move down** with the keyboard. **Edit** and **Remove** apply to browser engines (including the default) and custom engines. Removed browser engines leave the active list and move into the collapsed **Removed engines** section, which exposes **Restore** only. Reordering skips removed engines and preserves their restoration positions. Removal and edits affect this selector only; Zen's native search configuration is unaffected.
-- Dragging shows an insertion line and saves only on a valid drop within this engine list. Escape, a canceled drag, and external text or files do not save a new order. An unfinished URL edit stays in the form; the existing stale-draft protection still applies if settings changed after the edit began.
-- Edit any engine's name and HTTPS search URL, or add a custom engine with a URL such as `https://example.com/search?q={searchTerms}`. The URL must contain exactly one `{searchTerms}` placeholder in the path or query. **Cancel edit** discards an unfinished edit. Removing a custom engine deletes its selector entry.
-- Custom searches encode Hebrew and reserved URL characters correctly. Changes refresh the selector. A stale settings window cannot silently overwrite changes made in another window.
-- New custom engines and browser engines edited in Configure automatically request their configured origin's `/favicon.ico` in both the selected button and engine list. Unavailable icons fall back to the generic search icon. Engines sharing an icon, such as Google and Google Images, remain separate choices with their own visible names.
-- Keyboard users can open the selector, activate engine buttons, and close the engine list with Escape. Engine management lives inside Sine's Configure dialog; the floating menu contains engine choices only.
-- Long engine names wrap within the menu, and Configure uses compact spacing scoped to this mod's card. Its engine section follows Sine's own settings without adding another divider.
+- Seven optional presets: **Google Images, YouTube, Google Maps, Google Scholar, Reddit, Reddit via Google, and PDFs via Google**. Choose one under **Add from presets**, then **Add preset**. Existing engines and choices stay as they are; presets are not automatically added. Added presets can be edited, reordered, or removed like other custom engines.
+- Per-engine icons: use the default, choose a built-in Picture, PDF document, Discussion, Map, Book, or Search icon, or paste a direct HTTPS image URL. Google Images and PDFs have distinct default symbols; Reddit via Google uses Reddit's icon. Names remain visible when multiple entries share an icon.
+- Custom images have a preview, refresh, and reset control. The downloaded image is converted to a small PNG and stored with the engine's settings. It remains available offline and after ordinary mod updates. **Save engine** commits an edit; loading a preview alone does not. Refreshing never replaces the saved image until the edit is saved.
+- **Ctrl-click**, **Command-click** on macOS, or **middle-click** an engine to open the search in a background tab. The new mod setting enables these gestures by default; turn it off to ignore them. A normal click continues to use the current tab. Alt-click retains the existing Glance behavior.
+- Switching away from Reddit via Google or PDFs via Google removes that preset's `site:reddit.com` or `filetype:pdf` wrapper before sending the original search to the next engine.
 
-## Install through Sine
+## Install and configure
 
-Use Sine's custom GitHub-repository installation with this repository link:
+Use Sine's custom GitHub-repository installation with **https://github.com/YiftahCooper/Search-Engine-Select**, branch `main`. This JavaScript mod requires Sine's custom JavaScript support. Its `sine.allow-unsafe-js` setting applies globally to custom mods.
 
-**https://github.com/YiftahCooper/Search-Engine-Select**
+The fork retains the original mod ID and replaces the upstream mod. Do not enable both copies together. Runtime files are `theme.json`, `preferences.json`, `style.css`, and `search-engine-select-runtime.uc.js`.
 
-Choose the `main` branch if Sine asks. This mod includes JavaScript; Sine must already be configured to permit custom JavaScript mods for it to run. Sine's `sine.allow-unsafe-js` setting is global to custom mods, not permission for just this repository.
+All settings are in **Sine > Search Engine Select > Configure**, even when the floating selector is disabled. Drag an engine's dotted handle, or use **Move up / Move down**. Edit and remove apply to browser engines, including the default, and to custom engines. Removed browser engines appear under **Removed engines**, with **Restore**. Removing a custom engine deletes its selector entry. These operations do not change Zen's own search configuration.
 
-The runtime files are `theme.json`, `preferences.json`, `style.css`, and generated `search-engine-select-runtime.uc.js`. This fork retains the original mod ID and is intended to **replace** the upstream mod. Do not load both copies together. The fork registers an unload handler for Sine updates and reclaims leftover selector roots while active. It cannot unregister callbacks from an older script that never exposed cleanup.
+Custom search URLs must use HTTPS and contain exactly one `{searchTerms}` placeholder in the path or query. For example: `https://example.com/search?q={searchTerms}`. Search terms are URL-encoded automatically. Names are displayed as text. A stale settings window cannot silently overwrite a newer change made in another window.
 
-Open **Sine > Search Engine Select > Configure** to manage engines alongside the other settings. No search-results page is needed, and the settings remain available when the floating selector is turned off. Changes save immediately and refresh active selector windows. Close Sine's dialog when finished. Custom configuration uses `extension.search-engine-select.engines`; invalid data is preserved until you explicitly back it up and reset it.
+### Choosing an icon
 
-Version 1 settings (`hidden` and `custom`) are read without changing the stored preference. The first successful edit saves version 2, adding `order` and native-engine `overrides` while retaining existing entries. Stale edits are rejected, including drafts kept open during a refresh. Native engines removed from this selector remain available for recognizing the current search page. Version 2 is not compatible with an older release's settings editor; back up this preference before downgrading.
+Select **Edit** beside an engine, then choose:
 
-For a first check, search in DuckDuckGo, confirm one floating selector appears, then use Configure to hide/restore an engine and add a custom one. The source has automated coverage, but native Zen/Sine UI behavior still needs testing.
+| Choice | Behavior |
+| --- | --- |
+| Default — automatic | Uses the preset's symbol where available, otherwise the engine's automatic favicon. |
+| Built-in symbol | Uses the selected local Picture, PDF, Discussion, Map, Book, or Search symbol. |
+| Custom image URL | Paste a direct HTTPS image link, load the preview, then save the engine. The image is cached in the settings. |
 
-## Supported behavior and limitations
+Custom images may be PNG, JPEG, WebP, GIF, ICO, or SVG, up to 256 KB and 4096 pixels per dimension. They are reduced to a static 32×32 PNG; animation is not retained. Loading has an eight-second timeout. **Refresh icon** downloads the same URL again, and **Reset to default** removes the override when the engine is saved. A failed refresh preserves the previously saved image. Combined engine settings are limited to 512 KiB.
 
-Search-page detection matches an installed or explicitly configured GET search URL: its origin, path and query field, including fixed mode parameters. Parameter order and extra URL parameters are allowed. Native attribution/encoding parameters such as `t`, `client` and `source` are not required; user-configured fixed values are preserved as detection constraints. Specific configured modes, such as Images, take precedence over a general engine at the same endpoint. A site search appears only if it is an installed or explicitly configured engine. Engines requiring POST submissions are not supported. An engine that redirects to a different origin or search path may need its final search URL configured explicitly.
+Custom-image downloads omit credentials and referrers. The configured image server receives a request when an image is loaded or refreshed; using a saved custom image makes no further image-server request. Image URLs and cached PNGs are stored locally in the engine preference. Avoid putting private access tokens in image URLs.
 
-Custom and edited engines request only `/favicon.ico` at the configured URL's origin, then use the generic search icon if loading fails. These icon requests contain no search path, query parameters, fragment, or search terms, and send no referrer. This makes a network request to that origin (including private or local origins you configure); it does not send custom or edited engine hosts to a third-party favicon service. There is no HTML scraping or discovery of `rel="icon"` links, so sites that publish icons only at other paths use the generic fallback.
+Automatic icons for custom or edited engines try only their configured origin's `/favicon.ico`, then a local generic search icon. Reddit via Google uses Reddit's origin for its default icon. There is no discovery of HTML icon links. Unedited browser engines first try their supplied icon, then their origin's favicon, then the existing Google favicon service for public-looking hostnames, then the local generic icon. That service receives only the hostname; recognized local/reserved names and IP literals are excluded. This check does not resolve DNS. Automatic icon requests carry no referrer or search terms.
 
-Unedited browser engines retain their supplied icon first. If absent or unavailable, they try the search origin's `/favicon.ico`, then the existing Google favicon service for public-looking DNS names, then the generic icon. The Google request contains only the hostname; IP literals, single-label hosts and recognized local/reserved suffixes are excluded. This hostname check does not resolve DNS and cannot identify every privately routed domain. Supplied browser icon URLs are used as provided, with no referrer. Each candidate is attempted at most once per rendered image, and the terminal generic icon has no error retry handler. A later UI rebuild may try the icon again. Icon delivery and appearance still require native Zen testing.
+## Settings and updates
 
-## Testing status
+Settings are stored in Zen preferences under `extension.search-engine-select.*`; engine configuration, order, overrides, and cached custom images are in `extension.search-engine-select.engines`. Ordinary mod updates preserve these preferences.
 
-The source and generated package pass automated configuration, lifecycle, icon-fallback, search-page detection and simulated UI checks. Version 1.2.2 has regressions for unconfigured site-search URLs, same-tab navigation, ordinary address-bar navigation, reordered query parameters, configured search modes and encoded path queries. The fallback SVG was also checked against the installed Zen resource archive; this is not a native rendering test. The hot-update regression starts two genuine upstream controls and models Sine's non-unloadable URL gate, then checks one current control, live hide/restore changes, repeated updates, and disable/re-enable. The legacy fixture is included under `tests/fixtures` so this regression runs from a clean checkout. Native Zen/Sine hot-update activation, drag behavior, popup geometry, cross-mod interaction and actual remote icon availability still need testing.
+Version 1 and 2 engine settings are read without changing the stored value. The first successful edit saves version 3, retaining existing entries, order, removals, and overrides while adding icon support. Older editors do not support version 3; downgrading requires a compatible settings backup. Invalid stored data is preserved and blocked rather than silently replaced. The existing recovery control backs up malformed data to a preference before resetting it.
 
-Legacy anonymous callbacks remain in memory until their browser window closes. Version 1.2.1 reclaims their visible roots while its current owner is active; a full browser restart clears those inaccessible callbacks. Updating the files alone is not proof that Sine has loaded the new entry into an existing window.
+There is no settings export/import feature in this release.
+
+## Detection and lifecycle
+
+The selector matches installed or explicitly configured GET search URLs by origin, path, term field, and fixed mode parameters. Reordered and extra parameters are allowed. Native attribution parameters such as `t`, `client`, and `source` are not required; user-configured fixed values remain constraints. Specific configured modes take precedence over a general engine on the same endpoint. Ordinary websites do not become engines merely because they have a `q` or `search` parameter. Navigating away closes the selector and clears its query.
+
+POST search submissions are unsupported. A service that redirects to a different origin or search path may require its final search URL to be configured explicitly. Google Maps uses the documented Maps search URL; subsequent application navigation can change that URL and hide the selector.
+
+One controller owns the selector in each browser window. Reload and unload clean up its controls, observers, and callbacks. Orphan roots from older versions are reclaimed by exact mod ID. Historical anonymous callbacks from upstream cannot be unregistered; restarting the browser clears those callbacks. The runtime entry URL introduced in 1.2.1 remains unchanged.
+
+## Verification status
+
+Version 1.3.0 passes **62 automated tests** covering engine configuration and migration, presets, filtered searches, new-tab gestures, icon download limits and deadlines, cached images, canceled and stale edits, refresh/save races, keyboard use, reordering, detection, and lifecycle cleanup. The generated runtime is checked against the source. An independent review verified the refresh/save race fix.
+
+An isolated native Zen test was attempted with a disposable profile, but Zen exited with a Windows access violation during startup, before SES loaded, including with software rendering. Native image decoding, current Zen/Sine rendering, and live external-service redirects are therefore not verified for this release. Automated tests are not proof of everyday-profile acceptance. Development tests and diagnostic reports are retained separately from this installable repository.

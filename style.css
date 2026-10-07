@@ -220,6 +220,14 @@
   button:disabled { opacity: .6; cursor: default; }
   [data-ses-error]:empty { display: none; }
   [data-ses-error] { border-inline-start: 3px solid currentColor; padding-inline-start: 9px; }
+  [hidden] { display: none !important; }
+  select { font: inherit; color: inherit; background: var(--ses-hover-bg); border: 1px solid var(--ses-border-color); border-radius: 5px; padding: 6px 8px; min-width: 0; max-width: 100%; }
+  .ses-preset-picker { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin-block: 12px; }
+  .ses-preset-picker label { display: grid; gap: 4px; flex: 1 1 200px; }
+  .ses-icon-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+  .ses-icon-preview { width: 32px; height: 32px; object-fit: contain; flex: 0 0 32px; }
+  .ses-icon-tools [role="status"] { flex: 1 1 160px; overflow-wrap: anywhere; font-size: .9em; }
+  form > .ses-manager-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 }
 
 /* Isolate selector layout from browser preference-page element rules. */

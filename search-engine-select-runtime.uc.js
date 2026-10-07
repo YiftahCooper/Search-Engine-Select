@@ -3,8 +3,8 @@
 // @name            Search Engine Select
 // @description     Adds a floating UI to switch search engines on a search results page.
 // @author          Bibek Bhusal
-// @version         1.2.2
-// @lastUpdated     2026-10-03
+// @version         1.3.0
+// @lastUpdated     2026-10-07
 // @ignorecache
 // @homepage        https://github.com/YiftahCooper/Search-Engine-Select
 // ==/UserScript==
@@ -20,6 +20,8 @@
   // utils/favicon.js
   const genericSearchIcon = 'chrome://global/skin/icons/search-glass.svg';
   function searchEngineIcons(engine) {
+    if (engine?.sesIcon?.kind === 'builtin') return [builtinIcon(engine.sesIcon.name),genericSearchIcon];
+    if (engine?.sesIcon?.kind === 'url') return [engine.sesIcon.data,genericSearchIcon];
     const candidates = [];
     if (engine?.iconURI?.spec === genericSearchIcon) return [genericSearchIcon];
     if (engine?.iconURI?.spec) candidates.push(engine.iconURI.spec);
@@ -181,9 +183,97 @@
   }
   var PREFS2 = SearchEngineSelectPREFS;
 
+  // Available choices only: nothing is installed until the user adds a preset.
+const SES_PRESETS = [
+  {id:'google-images',name:'Google Images',url:'https://www.google.com/search?udm=2&q={searchTerms}',icon:'picture'},
+  {id:'youtube',name:'YouTube',url:'https://www.youtube.com/results?search_query={searchTerms}'},
+  {id:'google-maps',name:'Google Maps',url:'https://www.google.com/maps/search/?api=1&query={searchTerms}',icon:'map'},
+  {id:'google-scholar',name:'Google Scholar',url:'https://scholar.google.com/scholar?q={searchTerms}',icon:'book'},
+  {id:'reddit',name:'Reddit',url:'https://www.reddit.com/search/?q={searchTerms}'},
+  {id:'reddit-google',name:'Reddit via Google',url:'https://www.google.com/search?q=site%3Areddit.com%20{searchTerms}',iconOrigin:'https://www.reddit.com'},
+  {id:'pdf-google',name:'PDFs via Google',url:'https://www.google.com/search?q={searchTerms}%20filetype%3Apdf',icon:'pdf'}
+];
+function presetForEngine(id) { return SES_PRESETS.find(preset => `custom-preset-${preset.id}` === id); }
+
+  const SES_ICON_NAMES = {picture:'Picture',pdf:'PDF document',discussion:'Discussion',map:'Map',book:'Book',search:'Search'};
+function builtinIcon(name) {
+  const drawings = {
+    picture:'<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8" cy="8" r="1"/><path d="m3 17 6-6 4 4 3-3 5 5"/>',
+    pdf:'<path d="M6 3h8l4 4v14H6zM14 3v5h4"/><text x="12" y="17" text-anchor="middle" fill="white" stroke="none" font-family="sans-serif" font-size="7" font-weight="bold">PDF</text>',
+    discussion:'<path d="M4 4h16v12H9l-5 4z"/><path d="M8 8h8M8 12h6"/>',
+    map:'<path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2zM9 3v16M15 5v16"/>',
+    book:'<path d="M12 5C9 3 6 3 3 4v16c3-1 6-1 9 1 3-2 6-2 9-1V4c-3-1-6-1-9 1zm0 0v16"/>',
+    search:'<circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/>'
+  };
+  if (!Object.hasOwn(drawings,name)) throw new Error('Choose a supported built-in icon.');
+  // A filled background keeps these icons legible in both light and dark themes.
+  return 'data:image/svg+xml,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28"><rect width="28" height="28" rx="6" fill="#536779"/><g transform="translate(2 2)" fill="none" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${drawings[name]}</g></svg>`);
+}
+function iconUrl(value) {
+  if (typeof value !== 'string' || value.length > 2048) throw new Error('Enter a direct HTTPS image URL.');
+  let url;
+  try { url = new URL(value.trim()); } catch { throw new Error('Enter a direct HTTPS image URL.'); }
+  if (url.protocol !== 'https:' || url.username || url.password) throw new Error('Use an HTTPS image URL without a username or password.');
+  return url.href;
+}
+function validateIcon(icon) {
+  if (icon == null) return undefined;
+  if (icon.kind === 'builtin' && Object.hasOwn(SES_ICON_NAMES, icon.name)) return {kind:'builtin',name:icon.name};
+  if (icon.kind === 'url' && typeof icon.data === 'string' && icon.data.length <= 8192 && /^data:image\/png;base64,iVBORw0KGgo[A-Za-z0-9+/]*={0,2}$/.test(icon.data))
+    return {kind:'url',url:iconUrl(icon.url),data:icon.data};
+  throw new Error('The saved icon is invalid.');
+}
+async function fetchCustomIcon(value, signal) {
+  const url = iconUrl(value), controller = new AbortController();
+  const abort = () => controller.abort();
+  if (signal?.aborted) abort();
+  signal?.addEventListener('abort',abort,{once:true});
+  // The deadline covers body download and image decoding, not just headers.
+  let timer, image, objectUrl;
+  const deadline = new Promise((_,reject) => {
+    const fail = () => reject(new Error(signal?.aborted ? 'Icon loading canceled.' : 'Icon loading timed out. Try another image URL.'));
+    controller.signal.addEventListener('abort',fail,{once:true});
+    if (controller.signal.aborted) fail();
+    timer = setTimeout(abort,8000);
+  });
+  try {
+    return await Promise.race([deadline,(async()=>{
+      const response = await fetch(url,{signal:controller.signal,credentials:'omit',referrerPolicy:'no-referrer'});
+      if (controller.signal.aborted) throw new Error('Icon loading canceled.');
+      if (!response.ok || !response.url.startsWith('https:')) throw new Error('Could not download the icon. Use a direct HTTPS image link.');
+      const type = response.headers.get('content-type')?.split(';')[0].trim().toLowerCase();
+      if (!['image/png','image/jpeg','image/webp','image/gif','image/x-icon','image/vnd.microsoft.icon','image/svg+xml'].includes(type)) throw new Error('That link does not return a supported image.');
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('Could not read the image.');
+      const chunks = []; let size = 0;
+      try {
+        while (true) {
+          const {done,value:chunk} = await reader.read(); if (done) break;
+          size += chunk.length;
+          if (size > 262144) throw new Error('Choose an image smaller than 256 KB.');
+          chunks.push(chunk);
+        }
+      } finally { void reader.cancel().catch(()=>{}); }
+      if (controller.signal.aborted) throw new Error('Icon loading canceled.');
+      objectUrl = URL.createObjectURL(new Blob(chunks,{type})); image = new Image();
+      await new Promise((resolve,reject)=> { image.onload=resolve; image.onerror=()=>reject(new Error('The image could not be decoded.')); image.src=objectUrl; });
+      if (controller.signal.aborted) throw new Error('Icon loading canceled.');
+      if (!image.naturalWidth || !image.naturalHeight || image.naturalWidth > 4096 || image.naturalHeight > 4096) throw new Error('Choose an image no larger than 4096 pixels.');
+      const canvas = document.createElementNS('http://www.w3.org/1999/xhtml','canvas'); canvas.width=32; canvas.height=32;
+      const scale = Math.min(32/image.naturalWidth,32/image.naturalHeight), width=image.naturalWidth*scale, height=image.naturalHeight*scale;
+      canvas.getContext('2d').drawImage(image,(32-width)/2,(32-height)/2,width,height);
+      return validateIcon({kind:'url',url,data:canvas.toDataURL('image/png')});
+    })()]);
+  } finally {
+    clearTimeout(timer); signal?.removeEventListener('abort',abort); controller.abort();
+    if (image) { image.onload=image.onerror=null; image.src=''; }
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+  }
+}
+
   // Selector-only configuration. Never writes to the browser search service.
 const ENGINE_SETTINGS_PREF = 'extension.search-engine-select.engines';
-const emptyEngineSettings = () => ({ version: 2, hidden: [], custom: [], order: [], overrides: [] });
+const emptyEngineSettings = () => ({ version: 3, hidden: [], custom: [], order: [], overrides: [] });
 function engineKey(engine) {
   return engine ? (engine.sesId || `native:${engine.id || engine.name}`) : null;
 }
@@ -197,14 +287,15 @@ function validateCustomEngine(value) {
   catch { throw new Error('Enter a valid HTTPS search URL.'); }
   if (url.protocol !== 'https:' || url.username || url.password || !url.hostname || !/^https:\/\//i.test(template)) throw new Error('Use an HTTPS URL without a username or password.');
   if (url.host.includes('ses_query_marker') || url.hash.includes('SES_QUERY_MARKER') || !(url.pathname + url.search).includes('SES_QUERY_MARKER')) throw new Error('Place {searchTerms} in the URL path or query, not the host or fragment.');
-  return { id: value.id, name, url: template };
+  const icon = validateIcon(value.icon);
+  return { id: value.id, name, url: template, ...(icon ? {icon} : {}) };
 }
 function readEngineSettings() {
   const raw = Services.prefs.getStringPref(ENGINE_SETTINGS_PREF, '');
   if (!raw) return { raw, settings: emptyEngineSettings(), error: '' };
   try {
     const value = JSON.parse(raw);
-    if (![1, 2].includes(value?.version) || !Array.isArray(value.hidden) || !Array.isArray(value.custom) || value.hidden.length > 200 || value.custom.length > 100 || value.hidden.some(id => typeof id !== 'string')) throw new Error();
+    if (![1, 2, 3].includes(value?.version) || !Array.isArray(value.hidden) || !Array.isArray(value.custom) || value.hidden.length > 200 || value.custom.length > 100 || value.hidden.some(id => typeof id !== 'string')) throw new Error();
     const ids = new Set(), names = new Set();
     const custom = value.custom.map(item => {
       const engine = validateCustomEngine(item);
@@ -220,20 +311,25 @@ function readEngineSettings() {
       if (typeof engine.id !== 'string' || !engine.id.startsWith('native:') || nativeIds.has(engine.id)) throw new Error();
       nativeIds.add(engine.id); return engine;
     });
-    return { raw, settings: { version: 2, hidden: [...new Set(value.hidden)], custom, order, overrides: checkedOverrides }, error: '' };
+    return { raw, settings: { version: 3, hidden: [...new Set(value.hidden)], custom, order, overrides: checkedOverrides }, error: '' };
   } catch {
     return { raw, settings: emptyEngineSettings(), error: 'Saved engine settings are invalid. They have been preserved. Reset them below to edit the list.' };
   }
 }
 function saveEngineSettings(settings, expectedRaw) {
   if (Services.prefs.getStringPref(ENGINE_SETTINGS_PREF, '') !== expectedRaw) throw new Error('Engine settings changed in another window. Close and reopen Configure.');
-  Services.prefs.setStringPref(ENGINE_SETTINGS_PREF, JSON.stringify(settings));
+  const encoded = JSON.stringify(settings);
+  if (new TextEncoder().encode(encoded).length > 524288) throw new Error('The engine list is too large. Remove some custom icons or engines first.');
+  Services.prefs.setStringPref(ENGINE_SETTINGS_PREF, encoded);
 }
 function configuredEngine(item) {
+  const preset = presetForEngine(item.id);
+  const icon = item.icon || (preset?.icon ? {kind:'builtin',name:preset.icon} : undefined);
   return {
     name: item.name, sesId: item.id,
+    sesIcon: icon,
     // Configured URLs use their own origin, never a third-party favicon lookup.
-    sesIconOrigin: new URL(item.url.replace('{searchTerms}', '')).origin,
+    sesIconOrigin: preset?.iconOrigin && item.url === preset.url ? preset.iconOrigin : new URL(item.url.replace('{searchTerms}', '')).origin,
     getSubmission(term) { return { uri: { spec: item.url.replace('{searchTerms}', encodeURIComponent(term)) }, postData: null }; }
   };
 }
@@ -281,7 +377,10 @@ function searchUrlMatcher(engine) {
   const attribution = new Set(['t', 'client', 'source', 'sourceid', 'form', 'ie', 'oe', 'rlz']);
   const fixed = [...template.searchParams].filter(([key,value]) => !value.includes(marker) && (engine.sesId || !attribution.has(key.toLowerCase())));
   const fixedGroups = [...new Set(fixed.map(([key]) => key))].map(key => [key, fixed.filter(([name]) => name === key).map(([,value]) => value).sort()]);
-  return {engine, specificity: fixed.length, match(url) {
+  // A literal prefix/suffix around the term (site:reddit.com, filetype:pdf)
+  // identifies a more specific mode than the same endpoint's general search.
+  const wrappedTerm = queryField ? queryField[1].replace(marker,'').length : 0;
+  return {engine, specificity: fixed.length + Number(wrappedTerm > 0), match(url) {
     if (url.origin !== template.origin || url.username || url.password) return null;
     const path = url.pathname.match(pathPattern);
     if (!path || fixedGroups.some(([key,expected]) => {
@@ -315,6 +414,13 @@ function searchUrlMatcher(engine) {
   const removed = element('details'); removed.className = 'ses-removed-engines';
   const removedSummary = element('summary', 'Removed engines');
   const removedList = element('div'); removed.append(removedSummary, removedList);
+  const presets = element('div'); presets.className = 'ses-preset-picker';
+  const presetLabel = element('label','Add from presets');
+  const presetSelect = element('select'); presetSelect.name = 'ses-preset'; presetLabel.append(presetSelect);
+  const placeholder = element('option','Choose a preset…'); placeholder.value = ''; presetSelect.append(placeholder);
+  for (const preset of SES_PRESETS) { const option=element('option',preset.name);option.value=preset.id;presetSelect.append(option); }
+  const addPreset = element('button','Add preset'); addPreset.type='button';addPreset.dataset.sesAction='add-preset';
+  presets.append(presetLabel,addPreset);
   const form = element('form'); form.noValidate = true;
   const nameLabel = element('label', 'Engine name');
   const name = element('input'); name.name = 'ses-name'; name.maxLength = 80; nameLabel.append(name);
@@ -322,9 +428,64 @@ function searchUrlMatcher(engine) {
   const url = element('input'); url.name = 'ses-url'; url.type = 'url'; url.maxLength = 2048; url.placeholder = 'https://example.com/search?q={searchTerms}'; urlLabel.append(url);
   const add = element('button', 'Add engine'); add.type = 'submit'; add.dataset.sesAction = 'add';
   const cancel = element('button', 'Cancel edit'); cancel.type = 'button'; cancel.hidden = true;
-  form.append(nameLabel, urlLabel, add, cancel);
+  const iconLabel = element('label','Icon');
+  const iconChoice = element('select'); iconChoice.name='ses-icon';iconLabel.append(iconChoice);
+  for (const [value,text] of [['default','Default — automatic'],...Object.entries(SES_ICON_NAMES).map(([id,label])=>[`builtin:${id}`,label]),['url','Custom image URL']]) {
+    const option=element('option',text);option.value=value;iconChoice.append(option);
+  }
+  const imageLabel = element('label','Direct image URL'); imageLabel.hidden=true;
+  const imageUrl = element('input'); imageUrl.name='ses-icon-url'; imageUrl.type='url';imageUrl.maxLength=2048;
+  imageUrl.placeholder='https://example.com/icon.png';imageLabel.append(imageUrl);
+  const iconTools = element('div'); iconTools.className='ses-icon-tools';
+  const preview = element('img'); preview.className='ses-icon-preview';preview.alt='Icon preview';preview.hidden=true;
+  const load = element('button','Load preview'); load.type='button';load.dataset.sesAction='preview-icon';load.hidden=true;
+  const resetIcon = element('button','Reset to default'); resetIcon.type='button';resetIcon.dataset.sesAction='reset-icon';
+  const iconStatus = element('span');iconStatus.setAttribute('role','status');
+  iconTools.append(preview,load,resetIcon,iconStatus);
+  const iconHint = element('p','Custom images are saved locally. Paste a direct HTTPS image link (up to 256 KB).'); iconHint.hidden=true;
+  const formActions = element('div');formActions.className='ses-manager-actions';formActions.append(add,cancel);
+  form.append(nameLabel, urlLabel, iconLabel, imageLabel, iconTools, iconHint, formActions);
   const reset = element('button', 'Back up and reset invalid settings'); reset.type = 'button'; reset.hidden = true;
-  let revision = 0, rendered, editing = null, editRaw, dragging = null;
+  let revision = 0, rendered, editing = null, editRaw, dragging = null, disposed = false;
+  let iconDraft, previewController, draftRevision = 0, saving = false;
+  function cancelPreview() { previewController?.abort();previewController=null;add.disabled=saving || !!rendered?.error; }
+  function changeDraft() { ++draftRevision;cancelPreview(); }
+  function updateIconPreview() {
+    const custom = iconChoice.value === 'url';
+    imageLabel.hidden=load.hidden=iconHint.hidden=!custom;
+    load.textContent=iconDraft?.kind==='url' && iconDraft.url===imageUrl.value.trim()?'Refresh icon':'Load preview';
+    preview.hidden=false; iconStatus.textContent='';
+    if (iconChoice.value.startsWith('builtin:')) preview.src=builtinIcon(iconChoice.value.slice(8));
+    else if(custom && iconDraft?.url===imageUrl.value.trim()) preview.src=iconDraft.data;
+    else if(custom) { preview.hidden=true;preview.removeAttribute('src'); }
+    else {
+      const item = rendered && [...rendered.settings.custom,...rendered.settings.overrides].find(item=>item.id===editing);
+      if(item) setSearchEngineIcon(preview,configuredEngine({...item,icon:undefined}));
+      else setSearchEngineIcon(preview,editingNative);
+    }
+  }
+  let editingNative;
+  function resetIconDraft() { changeDraft();iconDraft=undefined;imageUrl.value='';iconChoice.value='default';updateIconPreview(); }
+  iconChoice.addEventListener('change',()=>{changeDraft();updateIconPreview();});
+  imageUrl.addEventListener('input',()=>{changeDraft();updateIconPreview();});
+  name.addEventListener('input',changeDraft);url.addEventListener('input',changeDraft);
+  resetIcon.addEventListener('click',resetIconDraft);
+  async function downloadPreview() {
+    cancelPreview();
+    const token=draftRevision, controller=new AbortController();previewController=controller;
+    add.disabled=true;
+    iconStatus.textContent='Loading icon…';
+    try {
+      const icon=await fetchCustomIcon(imageUrl.value,controller.signal);
+      if(disposed || !dialog.isConnected || token!==draftRevision || controller.signal.aborted) return null;
+      iconDraft=icon;imageUrl.value=icon.url;updateIconPreview();iconStatus.textContent='Preview ready. Save engine to keep it.';
+      return icon;
+    } catch(problem) {
+      if(!disposed && token===draftRevision && !controller.signal.aborted) iconStatus.textContent=problem.message;
+      throw problem;
+    } finally { if(previewController===controller) {previewController=null;add.disabled=saving || !!rendered?.error;} }
+  }
+  load.addEventListener('click',()=>{void downloadPreview().catch(()=>{});});
   const dragType = 'application/x-ses-engine-reorder';
   function clearDropIndicator() {
     for (const row of list.querySelectorAll('[data-ses-drop]')) delete row.dataset.sesDrop;
@@ -338,7 +499,7 @@ function searchUrlMatcher(engine) {
   document.addEventListener('dragend', cancelDrag);
   document.addEventListener('drop', cancelDrag);
   list.addEventListener('dragleave', event => { if (!list.contains(event.relatedTarget)) clearDropIndicator(); });
-  function clearEdit() { editing = null; editRaw = undefined; name.value = ''; url.value = ''; add.textContent = 'Add engine'; cancel.hidden = true; }
+  function clearEdit() { editing = null; editingNative=undefined;editRaw = undefined; name.value = ''; url.value = ''; add.textContent = 'Add engine'; cancel.hidden = true; resetIconDraft(); }
   cancel.addEventListener('click', clearEdit);
   async function render() {
     cancelDrag();
@@ -350,7 +511,12 @@ function searchUrlMatcher(engine) {
     if (!dialog.isConnected || currentRevision !== revision) return;
     rendered = state;
     error.textContent = state.error; reset.hidden = !state.error;
-    add.disabled = !!state.error;
+    add.disabled = !!state.error || saving || !!previewController;
+    addPreset.disabled = !!state.error;
+    for (const option of presetSelect.options) if(option.value) {
+      const preset=SES_PRESETS.find(item=>item.id===option.value);
+      option.disabled=settingsHasPreset(state.settings,preset);
+    }
     list.replaceChildren();
     removedList.replaceChildren();
     const { settings } = state;
@@ -439,7 +605,11 @@ function searchUrlMatcher(engine) {
         control.disabled ||= index + delta < 0 || index + delta >= active.length;
       }
       button('Edit', 'edit', () => {
+        changeDraft();editingNative=engine;
         editing = key; editRaw = state.raw; name.value = engine.name; url.value = engineTemplate(engine);
+        iconDraft=[...settings.custom,...settings.overrides].find(item=>item.id===key)?.icon;
+        iconChoice.value=iconDraft?.kind==='builtin'?`builtin:${iconDraft.name}`:iconDraft?.kind==='url'?'url':'default';
+        imageUrl.value=iconDraft?.kind==='url'?iconDraft.url:'';updateIconPreview();
         add.textContent = 'Save engine'; cancel.hidden = false; name.focus();
       });
       button('Remove', native ? 'remove-native' : 'remove-custom', () => mutate(next => {
@@ -456,21 +626,47 @@ function searchUrlMatcher(engine) {
       list.append(row);
     }
   }
-  form.addEventListener('submit', event => {
+  function settingsHasPreset(settings,preset) {
+    return settings.custom.some(item=>item.id===`custom-preset-${preset.id}` || item.url===preset.url || item.name.toLowerCase()===preset.name.toLowerCase());
+  }
+  addPreset.addEventListener('click',()=>{
+    try {
+      const preset=SES_PRESETS.find(item=>item.id===presetSelect.value);
+      if(!preset || !rendered || rendered.error) throw new Error('Choose an available preset.');
+      if(settingsHasPreset(rendered.settings,preset)) throw new Error('That preset is already in your list.');
+      if(rendered.settings.custom.length>=100) throw new Error('The selector supports up to 100 custom engines.');
+      const next=JSON.parse(JSON.stringify(rendered.settings));
+      next.custom.push(validateCustomEngine({id:`custom-preset-${preset.id}`,name:preset.name,url:preset.url}));
+      saveEngineSettings(next,rendered.raw);presetSelect.value='';render();
+    } catch(problem) {error.textContent=problem.message;}
+  });
+  form.addEventListener('submit', async event => {
     event.preventDefault();
+    if(saving || previewController) return;
+    const token=draftRevision;
+    saving=true;add.disabled=true;
     try {
       if (!rendered || rendered.error) throw new Error('Reset the invalid settings before adding engines.');
       if (!editing && rendered.settings.custom.length >= 100) throw new Error('The selector supports up to 100 custom engines.');
+      // Capture the revision before a network wait; a late download must never
+      // overwrite another window's changes or a newly opened editor.
+      const expectedRaw=editing?editRaw:rendered.raw;
+      const next = JSON.parse(JSON.stringify(rendered.settings));
       const engine = validateCustomEngine({ id: editing || `custom-${crypto.randomUUID()}`, name: name.value, url: url.value });
+      if(iconChoice.value.startsWith('builtin:')) engine.icon={kind:'builtin',name:iconChoice.value.slice(8)};
+      else if(iconChoice.value==='url') {
+        engine.icon=iconDraft?.url===iconUrl(imageUrl.value)?iconDraft:await downloadPreview();
+        if(disposed || token!==draftRevision || !engine.icon) return;
+      }
       const native = engine.id.startsWith('native:');
       if (!native && rendered.settings.custom.some(item => item.id !== editing && item.name.toLowerCase() === engine.name.toLowerCase())) throw new Error('A custom engine with that name already exists.');
-      const next = JSON.parse(JSON.stringify(rendered.settings));
       const collection = native ? 'overrides' : 'custom';
       const existing = next[collection].findIndex(item => item.id === engine.id);
       if (existing < 0) next[collection].push(engine);
       else next[collection][existing] = engine;
-      saveEngineSettings(next, editing ? editRaw : rendered.raw); clearEdit(); render();
-    } catch (problem) { error.textContent = problem.message; }
+      saveEngineSettings(next, expectedRaw); clearEdit(); render();
+    } catch (problem) { if(!disposed && token===draftRevision) error.textContent = problem.message; }
+    finally {saving=false;add.disabled=!!rendered?.error;}
   });
   reset.addEventListener('click', () => {
     if (!rendered?.error) return;
@@ -480,10 +676,10 @@ function searchUrlMatcher(engine) {
       saveEngineSettings(emptyEngineSettings(), rendered.raw); render();
     } catch (problem) { error.textContent = problem.message; }
   });
-  dialog.append(heading, intro, list, removed, error, form, reset);
+  dialog.append(heading, intro, list, removed, presets, error, form, reset);
   container.append(dialog); render();
   return {element:dialog,refresh:render,reset(){clearEdit();removed.open=false;render();},destroy(){
-    ++revision;cancelDrag();document.removeEventListener('keydown',onDragKey,true);
+    disposed=true;changeDraft();++revision;cancelDrag();document.removeEventListener('keydown',onDragKey,true);
     document.removeEventListener('dragend',cancelDrag);document.removeEventListener('drop',cancelDrag);dialog.remove();
   }};
 }
@@ -753,15 +949,15 @@ function mountSineSettings() {
         return;
       let term = this._currentSearchInfo.term, submission = newEngine.getSubmission(term), newUrl = submission?.uri?.spec, where = null;
       if (!newUrl) return;
-      if (engineKey(newEngine) === engineKey(this._currentSearchInfo?.engine) && newUrl === gBrowser.selectedBrowser.currentURI.spec) {
+      const newTabGesture = event.button === 1 || (event.button === 0 && (event.ctrlKey || event.metaKey));
+      if (newTabGesture && !Services.prefs.getBoolPref('extension.search-engine-select.open-in-new-tab',true)) return;
+      if (!newTabGesture && engineKey(newEngine) === engineKey(this._currentSearchInfo?.engine) && newUrl === gBrowser.selectedBrowser.currentURI.spec) {
         this.hideOptionsOnClickOutside(); return;
       }
-      if (event.button === 0 && event.ctrlKey && !event.altKey && !event.shiftKey)
-        where = "vsplit";
+      if (newTabGesture)
+        where = "background tab";
       else if (event.button === 0 && event.altKey)
         where = "glance";
-      else if (event.button === 1)
-        where = "background tab";
       else if (event.button === 0)
         where = "current tab";
       if (!where) {
@@ -828,6 +1024,7 @@ function mountSineSettings() {
         option.addEventListener('click', event => {
           if (event.detail === 0) this.handleEngineClick(event, engine);
         });
+        option.addEventListener('auxclick', event => { if (event.button === 1) event.preventDefault(); });
       });
     },
     startDrag(e) {

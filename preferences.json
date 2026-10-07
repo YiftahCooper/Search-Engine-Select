@@ -48,6 +48,13 @@
     "description": "Choose a visual style for the switcher."
   },
   {
+    "property": "extension.search-engine-select.open-in-new-tab",
+    "label": "Allow Ctrl-click and middle-click to open searches in a new tab",
+    "type": "checkbox",
+    "defaultValue": true,
+    "description": "Opens a background tab (Command-click on macOS). Ordinary clicks use the current tab. When off, these extra gestures do nothing."
+  },
+  {
     "property": "extension.search-engine-select.debug-mode",
     "label": "Enable Debug Mode",
     "type": "checkbox",
