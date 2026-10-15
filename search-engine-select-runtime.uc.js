@@ -3,8 +3,8 @@
 // @name            Search Engine Select
 // @description     Adds a floating UI to switch search engines on a search results page.
 // @author          Bibek Bhusal
-// @version         1.3.1
-// @lastUpdated     2026-10-07
+// @version         1.3.2
+// @lastUpdated     2026-10-15
 // @ignorecache
 // @homepage        https://github.com/YiftahCooper/Search-Engine-Select
 // ==/UserScript==
@@ -371,8 +371,17 @@ async function allSearchEngines(forDetection = false) {
   const installed = await getVisibleEngines();
   const settings = readEngineSettings().settings;
   const configured = orderedEngines(installed, settings);
+  if (!forDetection) return configured;
+  // Google redirects the shipped Images endpoint from udm=2 to tbm=isch.
+  // This is a detection alias only; user-edited URLs retain their own contract.
+  const detection = configured.flatMap(engine => {
+    if (engineKey(engine) !== 'custom-preset-google-images' || engineTemplate(engine) !== presetForEngine(engineKey(engine)).url) return [engine];
+    return [engine, { ...engine, getSubmission(term) {
+      return { uri: { spec: `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(term)}` }, postData: null };
+    } }];
+  });
   // Native URLs still identify a search after an override or removal from this selector.
-  return forDetection ? [...configured, ...installed.filter(engine => settings.overrides.some(item => item.id === engineKey(engine)))] : configured;
+  return [...detection, ...installed.filter(engine => settings.overrides.some(item => item.id === engineKey(engine)))];
 }
 function engineTemplate(engine) {
   const marker = 'SES_EDIT_QUERY_MARKER';
@@ -393,7 +402,7 @@ function searchUrlMatcher(engine) {
   const template = new URL(submission.uri.spec);
   if (!['https:', 'http:'].includes(template.protocol) || template.username || template.password) return null;
   const escape = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const pattern = (value, capture) => new RegExp(`^${value.split(marker).map(escape).join(capture)}$`);
+  const pattern = (value, capture) => new RegExp(`^${value.split(marker).map(escape).join(capture)}$`, 's');
   const pathQuery = template.pathname.includes(marker);
   const queryFields = [...template.searchParams].filter(([,value]) => value.includes(marker));
   if (Number(pathQuery) + queryFields.length !== 1) return null;
@@ -542,7 +551,14 @@ function searchUrlMatcher(engine) {
     const mutate = change => {
       try {
         const next = JSON.parse(JSON.stringify(settings)); change(next);
-        saveEngineSettings(next, state.raw); render();
+        saveEngineSettings(next, state.raw);
+        // An edit based on this revision can include this window's own list
+        // change. Never advance a draft that was already stale after refresh.
+        if (editing && editRaw === state.raw) editRaw = JSON.stringify(next);
+        // Keep the saved list available if Save precedes the asynchronous
+        // engine-service refresh, so the draft cannot undo this list change.
+        rendered = { ...state, raw: JSON.stringify(next), settings: next };
+        render();
       } catch (problem) { error.textContent = problem.message; }
     };
     const ordered = orderedEngines(engines, settings);

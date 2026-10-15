@@ -1,10 +1,15 @@
 # Search Engine Select
 
-Version **1.3.1**, maintained in [YiftahCooper/Search-Engine-Select](https://github.com/YiftahCooper/Search-Engine-Select). Switch search engines from a floating selector on a search-results page. Manage the selector in **Sine > Search Engine Select > Configure**.
+Version **1.3.2**, maintained in [YiftahCooper/Search-Engine-Select](https://github.com/YiftahCooper/Search-Engine-Select). Switch search engines from a floating selector on a search-results page. Manage the selector in **Sine > Search Engine Select > Configure**.
 
 This MIT-licensed fork is based on [Vertex-Mods/Search-Engine-Select](https://github.com/Vertex-Mods/Search-Engine-Select) version 1.1.32, commit `b58353d29d9cca5c431e3b3989a74f07eb4953ce`, by Bibek Bhusal. Original source is retained in Git history; provenance is in `UPSTREAM.json`.
 
-## New in 1.3.1
+## New in 1.3.2
+
+- Saving an engine edit after reordering or toggling another entry in the same Configure window now retains both changes. A truly stale window still cannot overwrite external changes.
+- Multiline searches remain recognized and retain all search text when switching engines.
+- Google Images remains recognized after Google's redirect from `udm=2` to `tbm=isch`; this alias is removed if its search URL is edited.
+
 
 - **One engine list.** Google Images, YouTube, Google Maps, Google Scholar, Reddit, Reddit via Google, and PDFs via Google appear as ordinary entries alongside browser engines. There is no separate preset picker. Uncheck an engine to hide it from the selector while keeping its editable row, or remove it. Removed default/browser engines can be restored from **Removed engines**.
 - **Distinct, bundled default icons.** All seven additions have local service-specific artwork. Google Images has an image badge, Reddit via Google has a Google badge, and PDFs via Google has a red PDF document with a Google badge. Default icons require no image-server request and work offline. Existing user-selected icons remain intact; use **Reset to default**, then save, to return an edited entry to its default artwork.
@@ -57,6 +62,9 @@ One controller owns the selector in each browser window. Reload and unload clean
 
 ## Verification status
 
-Version 1.3.1 passes **67 automated tests** covering engine configuration and migration, presets, filtered searches, new-tab gestures, icon download limits and deadlines, cached images, canceled and stale edits, refresh/save races, keyboard use, reordering, detection, and lifecycle cleanup. The generated runtime is checked against the source. Independent review checked the default-list migration, including persistent removal of older equivalent entries and editing at the custom-engine capacity limit. All seven production SVGs were decoded and visually reviewed on light and dark backgrounds. This image review is not a native Zen test.
+Version 1.3.2 passes **74 automated tests**, generated-runtime equality and syntax checks. Additional modeled matrices covered 405 source/destination/query combinations and 28 settings lifecycle scenarios across schemas 1–4. Independent review checked current-window versus stale-window editing behavior.
 
-An isolated native Zen test was attempted with a disposable profile, but Zen exited with a Windows access violation during startup, before SES loaded, including with software rendering. Native image decoding, current Zen/Sine rendering, and live external-service redirects are therefore not verified for this release. Automated tests are not proof of everyday-profile acceptance. Development tests and diagnostic reports are retained separately from this installable repository.
+A disposable Chromium run passed **17 production-runtime interaction/layout checks**: real drag ordering, Ctrl/middle/current-tab clicks, gesture disable, icon decoding and image caching/reset, normal-list changes, persistence, horizontal overflow, ordinary-page rejection and owner cleanup. Zen search/preferences services were simulated. These are browser-rendering/input results, not native Sine/Gecko proof.
+
+Fresh vanilla Zen 1.23.2b/Gecko 157.0.1 exited with Windows access violation 0xC0000005 before Marionette or either mod loaded. Native Zen rendering and the everyday profile remain unverified. Live HTTP checks reached six of the seven added destinations; direct Reddit returned HTTP 403 from the test environment. External anti-bot responses and service availability are not controlled by SES.
+
