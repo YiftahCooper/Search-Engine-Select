@@ -3,7 +3,7 @@
 // @name            Search Engine Select
 // @description     Adds a floating UI to switch search engines on a search results page.
 // @author          Bibek Bhusal
-// @version         1.3.2
+// @version         1.3.3
 // @lastUpdated     2026-10-15
 // @ignorecache
 // @homepage        https://github.com/YiftahCooper/Search-Engine-Select
@@ -257,7 +257,7 @@ async function fetchCustomIcon(value, signal) {
   });
   try {
     return await Promise.race([deadline,(async()=>{
-      const response = await fetch(url,{signal:controller.signal,credentials:'omit',referrerPolicy:'no-referrer'});
+      const response = await fetch(url,{signal:controller.signal,credentials:'omit',referrerPolicy:'no-referrer',redirect:'error'});
       if (controller.signal.aborted) throw new Error('Icon loading canceled.');
       if (!response.ok || !response.url.startsWith('https:')) throw new Error('Could not download the icon. Use a direct HTTPS image link.');
       const type = response.headers.get('content-type')?.split(';')[0].trim().toLowerCase();

@@ -1,8 +1,12 @@
 # Search Engine Select
 
-Version **1.3.2**, maintained in [YiftahCooper/Search-Engine-Select](https://github.com/YiftahCooper/Search-Engine-Select). Switch search engines from a floating selector on a search-results page. Manage the selector in **Sine > Search Engine Select > Configure**.
+Version **1.3.3**, maintained in [YiftahCooper/Search-Engine-Select](https://github.com/YiftahCooper/Search-Engine-Select). Switch search engines from a floating selector on a search-results page. Manage the selector in **Sine > Search Engine Select > Configure**.
 
 This MIT-licensed fork is based on [Vertex-Mods/Search-Engine-Select](https://github.com/Vertex-Mods/Search-Engine-Select) version 1.1.32, commit `b58353d29d9cca5c431e3b3989a74f07eb4953ce`, by Bibek Bhusal. Original source is retained in Git history; provenance is in `UPSTREAM.json`.
+
+## New in 1.3.3
+
+Custom-image downloads reject redirects, preserving the direct-HTTPS-image contract. A failed load or refresh retains the saved cached image. Existing engine configuration and cached icons remain unchanged.
 
 ## New in 1.3.2
 
@@ -40,7 +44,7 @@ Select **Edit** beside an engine, then choose:
 
 Custom images may be PNG, JPEG, WebP, GIF, ICO, or SVG, up to 256 KB and 4096 pixels per dimension. They are reduced to a static 32×32 PNG; animation is not retained. Loading has an eight-second timeout. **Refresh icon** downloads the same URL again, and **Reset to default** removes the override when the engine is saved. A failed refresh preserves the previously saved image. Combined engine settings are limited to 512 KiB.
 
-Custom-image downloads omit credentials and referrers. The configured image server receives a request when an image is loaded or refreshed; using a saved custom image makes no further image-server request. Image URLs and cached PNGs are stored locally in the engine preference. Avoid putting private access tokens in image URLs.
+Custom-image downloads omit credentials and referrers and reject redirects. The configured image server receives a request when an image is loaded or refreshed; using a saved custom image makes no further image-server request. Image URLs and cached PNGs are stored locally in the engine preference. Avoid putting private access tokens in image URLs.
 
 Default additions use bundled artwork. Other custom or edited engines try their configured origin's `/favicon.ico`, then a local generic search icon. There is no discovery of HTML icon links. Unedited browser engines first try their supplied icon, then their origin's favicon, then the existing Google favicon service for public-looking hostnames, then the local generic icon. That service receives only the hostname; recognized local/reserved names and IP literals are excluded. This check does not resolve DNS. Automatic icon requests carry no referrer or search terms.
 
@@ -62,9 +66,8 @@ One controller owns the selector in each browser window. Reload and unload clean
 
 ## Verification status
 
-Version 1.3.2 passes **74 automated tests**, generated-runtime equality and syntax checks. Additional modeled matrices covered 405 source/destination/query combinations and 28 settings lifecycle scenarios across schemas 1–4. Independent review checked current-window versus stale-window editing behavior.
+Version 1.3.3 passes **75 automated tests**, generated-runtime equality and syntax checks. Additional modeled matrices covered 405 source/destination/query combinations and 28 settings lifecycle scenarios across schemas 1–4. Independent review checked current-window versus stale-window editing behavior.
 
 A disposable Chromium run passed **17 production-runtime interaction/layout checks**: real drag ordering, Ctrl/middle/current-tab clicks, gesture disable, icon decoding and image caching/reset, normal-list changes, persistence, horizontal overflow, ordinary-page rejection and owner cleanup. Zen search/preferences services were simulated. These are browser-rendering/input results, not native Sine/Gecko proof.
 
-Fresh vanilla Zen 1.23.2b/Gecko 157.0.1 exited with Windows access violation 0xC0000005 before Marionette or either mod loaded. Native Zen rendering and the everyday profile remain unverified. Live HTTP checks reached six of the seven added destinations; direct Reddit returned HTTP 403 from the test environment. External anti-bot responses and service availability are not controlled by SES.
-
+Disposable headless Linux Zen **1.23.2b / Gecko 157.0.1** with pinned real Sine verifies native route recognition and rejection, trusted click gestures, exactly-one background tabs, query fidelity, bundled icon decoding, actual Configure list/draft behavior, owner cleanup and process-restart persistence. Native image decoding/rasterization tests use deterministic transport for redirects, malformed/oversized images, failure preservation and eight-second header/body deadlines. Search navigation tests run offline inside the owned browser; they do not prove live service availability. Native drag-and-drop requires a platform drag service unavailable in this headless Linux backend and remains in the Windows gate; Chromium drag ordering is separately verified. The everyday profile and personal account state were not accessed.
