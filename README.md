@@ -1,8 +1,18 @@
 # Search Engine Select
 
-Version **1.3.3**, maintained in [YiftahCooper/Search-Engine-Select](https://github.com/YiftahCooper/Search-Engine-Select). Switch search engines from a floating selector on a search-results page. Manage the selector in **Sine > Search Engine Select > Configure**.
+Version **1.3.4**, maintained in [YiftahCooper/Search-Engine-Select](https://github.com/YiftahCooper/Search-Engine-Select). Switch search engines from a floating selector on a search-results page. Manage the selector in **Sine > Search Engine Select > Configure**.
 
 This MIT-licensed fork is based on [Vertex-Mods/Search-Engine-Select](https://github.com/Vertex-Mods/Search-Engine-Select) version 1.1.32, commit `b58353d29d9cca5c431e3b3989a74f07eb4953ce`, by Bibek Bhusal. Original source is retained in Git history; provenance is in `UPSTREAM.json`.
+
+## New in 1.3.4
+
+Performance and robustness fixes; settings and behavior are otherwise unchanged.
+
+- The selector no longer watches every change in the browser window's interface. It watches only where older versions placed their control.
+- If the search service is not ready at startup, the selector retries a few times with increasing delays instead of staying off until restart. A later search-engine change also starts it.
+- While the selector is hidden it skips position and layout work on tab switches, window resizes and split-view changes. Closing many tabs schedules one repositioning instead of one per tab.
+- A remembered position from a taller window is kept on screen, and returns when the window grows again. The saved preference is not rewritten.
+- Unused upstream code paths were removed, including the unused settings deep link.
 
 ## New in 1.3.3
 
@@ -66,7 +76,7 @@ One controller owns the selector in each browser window. Reload and unload clean
 
 ## Verification status
 
-Version 1.3.3 passes **75 automated tests**, generated-runtime equality and syntax checks. Additional modeled matrices covered 405 source/destination/query combinations and 28 settings lifecycle scenarios across schemas 1–4. Independent review checked current-window versus stale-window editing behavior.
+Version 1.3.4 passes **89 automated tests**, generated-runtime equality and syntax checks. Its observer, startup-retry and positioning changes have not yet been checked in native Zen; the remaining results in this section were recorded for 1.3.3. Additional modeled matrices covered 405 source/destination/query combinations and 28 settings lifecycle scenarios across schemas 1–4. Independent review checked current-window versus stale-window editing behavior.
 
 A disposable Chromium run passed **17 production-runtime interaction/layout checks**: real drag ordering, Ctrl/middle/current-tab clicks, gesture disable, icon decoding and image caching/reset, normal-list changes, persistence, horizontal overflow, ordinary-page rejection and owner cleanup. Zen search/preferences services were simulated. These are browser-rendering/input results, not native Sine/Gecko proof.
 

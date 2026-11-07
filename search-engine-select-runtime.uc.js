@@ -3,8 +3,8 @@
 // @name            Search Engine Select
 // @description     Adds a floating UI to switch search engines on a search results page.
 // @author          Bibek Bhusal
-// @version         1.3.3
-// @lastUpdated     2026-10-15
+// @version         1.3.4
+// @lastUpdated     2026-11-07
 // @ignorecache
 // @homepage        https://github.com/YiftahCooper/Search-Engine-Select
 // ==/UserScript==
@@ -64,9 +64,7 @@
   }
 
   // utils/parse.js
-  var parseElement = (elementString, type = "html") => {
-    if (type === "xul")
-      return window.MozXULElement.parseXULToFragment(elementString).firstChild;
+  var parseElement = (elementString) => {
     let element = new DOMParser().parseFromString(elementString, "text/html");
     if (element.body.children.length)
       element = element.body.firstChild;
@@ -135,11 +133,6 @@
         return !1;
       return this.getPref(this.DEBUG_MODE);
     }
-    static set debugMode(value) {
-      if (!this.DEBUG_MODE)
-        return;
-      this.setPref(this.DEBUG_MODE, value);
-    }
     static debugLog(...args) {
       if (this.debugMode)
         console.log(`${this.MOD_NAME}:`, ...args);
@@ -166,14 +159,8 @@
     static get enabled() {
       return this.getPref(this.ENABLED);
     }
-    static set enabled(value) {
-      this.setPref(this.ENABLED, value);
-    }
     static get rememberPosition() {
       return this.getPref(this.REMEMBER_POSITION);
-    }
-    static set rememberPosition(value) {
-      this.setPref(this.REMEMBER_POSITION, value);
     }
     static get yCoor() {
       return this.getPref(this.Y_COOR);
@@ -183,6 +170,13 @@
     }
   }
   var PREFS2 = SearchEngineSelectPREFS;
+  // Saved positions are "<n>px" (drag) or "<n>%" (default). Anything else,
+  // including hand-edited values, falls back to the default.
+  function sanitizeTop(value) {
+    const match = /^\s*(\d+(?:\.\d+)?)\s*(px|%)?\s*$/.exec(String(value ?? ''));
+    if (!match || !Number.isFinite(Number(match[1]))) return SearchEngineSelectPREFS.defaultValues[SearchEngineSelectPREFS.Y_COOR];
+    return match[2] === '%' ? `${Math.min(Number(match[1]), 100)}%` : `${Number(match[1])}px`;
+  }
 
   // Default engines appear in the same editable list as browser/custom engines.
 // Stable legacy IDs retain existing 1.3.0 edits, icons and order.
@@ -739,10 +733,6 @@ function mountSineSettings() {
     dialog = container.closest('dialog'); dialog?.addEventListener('close', reset);
     configureButton = container.closest('[mod-id]')?.querySelector('.sineItemConfigureButton');
     configureButton?.addEventListener('click', reset);
-    if (new URL(window.location.href).searchParams.get('searchEngineSelectSettings') === '1' && !document.documentElement.hasAttribute('data-ses-settings-shown')) {
-      document.documentElement.setAttribute('data-ses-settings-shown', '');
-      configureButton?.click();
-    }
   }
   const observer = new MutationObserver(mount);
   observer.observe(document.documentElement, {childList: true, subtree: true});
@@ -770,22 +760,16 @@ function mountSineSettings() {
   }
 
   // utils/open-link.js
-  async function openLink(url, where = "new tab") {
+  // Only the destinations handleEngineClick passes; anything else (or a failed
+  // Glance) falls back to a foreground tab.
+  async function openLink(url, where) {
     if (!url)
       return !1;
-    let destination = where?.toLowerCase()?.trim();
-    switch (destination) {
+    switch (where) {
       case "current tab":
         return openTrustedLinkIn(url, "current"), !0;
-      case "new tab":
-        return openTrustedLinkIn(url, "tab"), !0;
       case "background tab":
         return openTrustedLinkIn(url, "tab", { inBackground: !0, relatedToCurrent: !0 }), !0;
-      case "new window":
-        return openTrustedLinkIn(url, "window"), !0;
-      case "incognito":
-      case "private":
-        return window.openTrustedLinkIn(url, "window", { private: !0 }), !0;
       case "glance": {
         let manager = window.gZenGlanceManager;
         if (manager?.openGlance)
@@ -806,15 +790,6 @@ function mountSineSettings() {
           }
         break;
       }
-      case "vsplit":
-      case "hsplit":
-        if (window.gZenViewSplitter) {
-          let sep = destination === "vsplit" ? "vsep" : "hsep", tab1 = gBrowser.selectedTab;
-          await openTrustedLinkIn(url, "tab");
-          let tab2 = gBrowser.selectedTab;
-          return gZenViewSplitter.splitTabs([tab1, tab2], sep, 1), !0;
-        }
-        break;
       default:
         break;
     }
@@ -839,7 +814,14 @@ function mountSineSettings() {
     _initializing: null,
     _disposed: false,
     _timers: new Set(),
+    _positionTimer: null,
     _engineRevision: 0,
+    _retryCount: 0,
+    _preferredTop: '60%',
+    // A failed start (search service not ready, module import failure) is
+    // retried a bounded number of times with increasing delays. A later
+    // engine-modified notification or re-enabling also restarts it.
+    _retryDelays: [1000, 2000, 4000, 8000, 16000],
     init() {
       if (this._disposed || !PREFS2.enabled || this._container) return;
       if (this._initializing) return this._initializing;
@@ -850,29 +832,50 @@ function mountSineSettings() {
         this.createUI();
         this.attachEventListeners();
         this.updateSwitcherVisibility();
+        this._retryCount = 0;
       })().catch(error => {
-        if (generation === this._generation) this.destroy();
         PREFS2.debugError('Initialization failed', error);
+        if (generation !== this._generation) return;
+        this.destroy();
+        this.scheduleRetry();
       }).finally(() => {
         if (this._initializing === pending) this._initializing = null;
       });
       this._initializing = pending;
       return pending;
     },
+    scheduleRetry() {
+      if (this._disposed || !PREFS2.enabled || this._retryCount >= this._retryDelays.length) return;
+      const timer = setTimeout(() => {
+        this._timers.delete(timer);
+        if (!this._disposed && PREFS2.enabled) this.init();
+      }, this._retryDelays[this._retryCount++]);
+      this._timers.add(timer);
+    },
     destroy() {
       ++this._generation;
       this._initializing = null;
       for (const timer of this._timers) clearTimeout(timer);
       this._timers.clear();
+      this._positionTimer = null;
       this._isDragging = false;
       this._container?.remove(), this.removeEventListeners(), this._container = null, this._engineSelect = null, this._engineOptions = null, this._dragHandle = null, PREFS2.debugLog("Destroyed successfully.");
     },
+    // Coalesce delayed repositioning: a burst of tab closes leaves one timer.
     schedulePosition() {
-      const timer = setTimeout(() => {
+      if (this._positionTimer) {
+        clearTimeout(this._positionTimer);
+        this._timers.delete(this._positionTimer);
+      }
+      const timer = this._positionTimer = setTimeout(() => {
         this._timers.delete(timer);
+        if (this._positionTimer === timer) this._positionTimer = null;
         if (!this._disposed && this._container) this.updatePosition();
       }, 500);
       this._timers.add(timer);
+    },
+    isVisible() {
+      return this._container?.style.display === "flex";
     },
     async buildEngineRegexCache(generation = this._generation) {
       const revision = ++this._engineRevision;
@@ -906,31 +909,43 @@ function mountSineSettings() {
     _show() {
       if (!this._container)
         return;
-      this._container.style.display = "flex", this.updateSelectedEngineDisplay(), this.handleSplitOrGlance();
+      const appearing = !this.isVisible();
+      if (appearing) this._container.style.display = "flex";
+      this.updateSelectedEngineDisplay();
+      // Layout reads happen only while visible; re-check the saved position
+      // whenever the selector reappears, since the window may have changed.
+      if (appearing) this.applyPosition();
+      this.handleSplitOrGlance();
     },
     _hide() {
       if (!this._container)
         return;
-      if (this._container.style.display = "none", this._engineOptions)
-        this.hideOptionsOnClickOutside();
+      this.hideOptionsOnClickOutside();
+      if (this._container.style.display !== "none") this._container.style.display = "none";
     },
     updateSelectedEngineDisplay() {
       if (!this._currentSearchInfo || !this._engineSelect)
         return;
-      let { engine, host } = this._currentSearchInfo, img = parseElement("<img>");
+      // matchUrl results always carry an engine.
+      let { engine } = this._currentSearchInfo, img = parseElement("<img>");
       setSearchEngineIcon(img, engine);
-      let label = engine ? engine.name : host || "Unknown search", nameSpan = parseElement(`<span>${escapeXmlAttribute(label)}</span>`);
+      let label = engine.name, nameSpan = parseElement(`<span>${escapeXmlAttribute(label)}</span>`);
       this._engineSelect.replaceChildren(img, nameSpan);
       this._engineSelect.setAttribute('aria-label', `Search engine: ${label}. Choose another engine`);
     },
     handleEnabledChange(pref) {
       if (pref.value)
-        this.init();
+        this._retryCount = 0, this.init();
       else
         this.destroy();
     },
     handleTabSelect() {
-      if (this._hide(), this.updateSwitcherVisibility(), this.handleSplitOrGlance(), this.observeSelectedBrowser(), gBrowser.selectedTab?.hasAttribute("zen-glance-tab"))
+      // A tab switch always closes the engine menu; _show positions the
+      // selector (split/glance included) only when the new tab is a search.
+      this.hideOptionsOnClickOutside();
+      this.updateSwitcherVisibility();
+      this.observeSelectedBrowser();
+      if (this.isVisible() && gBrowser.selectedTab?.hasAttribute("zen-glance-tab"))
         this.schedulePosition();
     },
     onLocationChange(browser) {
@@ -938,7 +953,8 @@ function mountSineSettings() {
         this.updateSwitcherVisibility();
     },
     handleSplitOrGlance() {
-      if (!this._container)
+      // Hidden: nothing to place. _show re-runs this when the selector appears.
+      if (!this._container || !this.isVisible())
         return;
       let isVerticalSplit = window.gZenViewSplitter?.currentView >= 0 && window.gZenViewSplitter._data[window.gZenViewSplitter.currentView]?.gridType === "vsep", isGlance = gBrowser.selectedTab?.hasAttribute("zen-glance-tab");
       if (!isVerticalSplit && !isGlance) {
@@ -962,8 +978,8 @@ function mountSineSettings() {
     },
     updatePosition() {
       let activeBrowser = gBrowser.selectedBrowser;
-      if (!this._container) return;
-      if (!activeBrowser || !this._container || !this._container.classList.contains("in-split-view")) {
+      if (!this._container || !this.isVisible()) return;
+      if (!activeBrowser || !this._container.classList.contains("in-split-view")) {
         this._container.style.removeProperty("--ses-pane-x"), this._container.style.removeProperty("--ses-pane-width");
         return;
       }
@@ -991,7 +1007,7 @@ function mountSineSettings() {
       else if (event.button === 0)
         where = "current tab";
       if (!where) {
-        this._engineOptions.style.display = "none", this._container.classList.remove("options-visible");
+        this.hideOptionsOnClickOutside();
         return;
       }
       const opened = await openLink(newUrl, where);
@@ -1010,11 +1026,16 @@ function mountSineSettings() {
     },
     hideOptionsOnClickOutside() {
       if (!this._engineOptions || !this._container) return;
+      // Runs for every chrome click: skip the writes when the menu is closed.
+      if (this._engineOptions.style.display !== "block" && !this._container.classList.contains("options-visible") && this._engineSelect?.getAttribute('aria-expanded') !== 'true') return;
       this._engineOptions.style.display = "none", this._container.classList.remove("options-visible");
       this._engineSelect?.setAttribute('aria-expanded', 'false');
     },
     async refreshEngines() {
-      if (!this._container || this._disposed) return;
+      if (this._disposed) return;
+      // Not running while enabled means startup failed: engines changing is a
+      // sign the search service is ready, so start again (init is idempotent).
+      if (!this._container) return PREFS2.enabled ? this.init() : undefined;
       const generation = this._generation;
       try {
         await this.buildEngineRegexCache(generation);
@@ -1023,14 +1044,30 @@ function mountSineSettings() {
         this.updateSwitcherVisibility();
       } catch (error) { PREFS2.debugError('Engine refresh failed', error); }
     },
+    // Apply the remembered vertical position, clamped to the same bounds a
+    // drag allows in the current window. Needs layout, so only while visible.
+    applyPosition() {
+      const container = this._container;
+      if (!container || !this.isVisible() || this._isDragging) return;
+      let top = this._preferredTop;
+      const px = /^(\d+(?:\.\d+)?)px$/.exec(top);
+      if (px) {
+        const max = Math.max(10, window.innerHeight - container.offsetHeight - 10);
+        top = `${Math.min(Math.max(Number(px[1]), 10), max)}px`;
+      }
+      if (container.style.top !== top) container.style.top = top;
+    },
     createUI() {
+      this._preferredTop = sanitizeTop(PREFS2.yCoor);
       let container = parseElement(`
-      <div id="search-engine-switcher-container" style="top: ${PREFS2.yCoor};">
+      <div id="search-engine-switcher-container">
         <button type="button" id="ses-engine-select" aria-expanded="false" aria-controls="ses-engine-options" aria-label="Choose a search engine"></button>
         <div id="ses-drag-handle"></div>
         <div id="ses-engine-options"></div>
       </div>
     `);
+      // Set as a property: the preference is never interpolated into markup.
+      container.style.top = this._preferredTop;
       this._container = container, this._engineSelect = container.querySelector("#ses-engine-select"), this._dragHandle = container.querySelector("#ses-drag-handle"), this._engineOptions = container.querySelector("#ses-engine-options"), document.documentElement.append(this._container), this.populateEngineList();
       this._engineOptions.addEventListener('keydown', event => {
         if (event.key !== 'Escape') return;
@@ -1073,7 +1110,7 @@ function mountSineSettings() {
     stopDrag() {
       if (!this._isDragging)
         return;
-      if (this._isDragging = !1, this._container.classList.remove("is-dragging"), this._dragHandle.style.cursor = "grab", PREFS2.rememberPosition)
+      if (this._isDragging = !1, this._container.classList.remove("is-dragging"), this._dragHandle.style.cursor = "grab", this._preferredTop = this._container.style.top, PREFS2.rememberPosition)
         PREFS2.yCoor = this._container.style.top;
       document.removeEventListener("mousemove", this._boundListeners.doDrag), document.removeEventListener("mouseup", this._boundListeners.stopDrag);
     },
@@ -1084,7 +1121,9 @@ function mountSineSettings() {
           "nsIWebProgressListener",
           "nsISupportsWeakReference"
         ])
-      }, this._boundListeners.handleTabSelect = this.handleTabSelect.bind(this), this._boundListeners.toggleOptions = this.toggleOptions.bind(this), this._boundListeners.hideOptionsOnClickOutside = this.hideOptionsOnClickOutside.bind(this), this._boundListeners.startDrag = this.startDrag.bind(this), this._boundListeners.doDrag = this.doDrag.bind(this), this._boundListeners.stopDrag = this.stopDrag.bind(this), this._boundListeners.onSplitViewActivated = this.handleSplitOrGlance.bind(this), this._boundListeners.onSplitViewDeactivated = this.handleSplitOrGlance.bind(this), this._boundListeners.onCompactModeToggled = this.updatePosition.bind(this), this._boundListeners.onResize = this.updatePosition.bind(this), this._boundListeners.onTabClose = () => {
+      }, this._boundListeners.handleTabSelect = this.handleTabSelect.bind(this), this._boundListeners.toggleOptions = this.toggleOptions.bind(this), this._boundListeners.hideOptionsOnClickOutside = this.hideOptionsOnClickOutside.bind(this), this._boundListeners.startDrag = this.startDrag.bind(this), this._boundListeners.doDrag = this.doDrag.bind(this), this._boundListeners.stopDrag = this.stopDrag.bind(this), this._boundListeners.onSplitViewActivated = this.handleSplitOrGlance.bind(this), this._boundListeners.onSplitViewDeactivated = this.handleSplitOrGlance.bind(this), this._boundListeners.onCompactModeToggled = this.updatePosition.bind(this), this._boundListeners.onResize = () => {
+        this.applyPosition(), this.updatePosition();
+      }, this._boundListeners.onTabClose = () => {
         this.updatePosition(), this.schedulePosition();
       }, this._resizeObserver = new ResizeObserver(() => this.updatePosition()), this.observeSelectedBrowser(), gBrowser.tabContainer.addEventListener("TabSelect", this._boundListeners.handleTabSelect), gBrowser.addTabsProgressListener(this._progressListener), this._engineSelect.addEventListener("click", this._boundListeners.toggleOptions), document.addEventListener("click", this._boundListeners.hideOptionsOnClickOutside), this._dragHandle.addEventListener("mousedown", this._boundListeners.startDrag), gBrowser.tabContainer.addEventListener("TabClose", this._boundListeners.onTabClose), window.addEventListener("ZenViewSplitter:SplitViewActivated", this._boundListeners.onSplitViewActivated), window.addEventListener("ZenViewSplitter:SplitViewDeactivated", this._boundListeners.onSplitViewDeactivated), window.addEventListener("ZenCompactMode:Toggled", this._boundListeners.onCompactModeToggled), window.addEventListener("resize", this._boundListeners.onResize);
     },
@@ -1101,23 +1140,22 @@ function mountSineSettings() {
   const removers = [];
   const isSettingsPage = /^about:(preferences|settings)(?:[?#]|$)/.test(window.location.href);
   // Legacy releases had no registered owner to unload. Reclaim only this mod's
-  // exact root ID; observe late injection as well as roots already in the DOM.
+  // exact root ID: sweep the whole document once, then watch only direct
+  // children of <html>, where every release (upstream included) appends its
+  // root. A subtree observer would see all chrome DOM churn.
   let rootObserver;
   if (!isSettingsPage) {
-    const removeOrphans = scope => {
-      const roots = [...scope.querySelectorAll('#search-engine-switcher-container')];
-      if (scope.id === 'search-engine-switcher-container') roots.unshift(scope);
-      for (const root of roots) {
-        if (root !== SearchEngineSwitcher._container) root.remove();
-      }
-    };
+    const rootId = 'search-engine-switcher-container';
+    const isOrphan = node => node.id === rootId && node !== SearchEngineSwitcher._container;
+    for (const root of document.querySelectorAll(`#${rootId}`)) {
+      if (isOrphan(root)) root.remove();
+    }
     rootObserver = new MutationObserver(records => {
       for (const record of records) for (const node of record.addedNodes) {
-        if (node.nodeType === 1) removeOrphans(node);
+        if (node.nodeType === 1 && isOrphan(node)) node.remove();
       }
     });
-    rootObserver.observe(document.documentElement, {childList: true, subtree: true});
-    removeOrphans(document);
+    rootObserver.observe(document.documentElement, {childList: true});
   }
   let settingsBridge;
   const owner = { unload() {
