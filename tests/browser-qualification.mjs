@@ -1,0 +1,70 @@
+// Production SES runtime with real Chromium input/layout and a synthetic Zen
+// search/preferences boundary. It does not prove native Sine/Zen behavior.
+import {readFile,mkdir,writeFile} from 'node:fs/promises';
+import {createRequire} from 'node:module';
+import {fileURLToPath} from 'node:url';
+const require=createRequire(import.meta.url);
+const {chromium}=require(process.env.BROWSER_TEST_NODE_MODULES?process.env.BROWSER_TEST_NODE_MODULES+'/playwright':'playwright');
+const root=new URL('../',import.meta.url),out=new URL('.backup-scratch/browser-qualification/',root);await mkdir(out,{recursive:true});
+const context=await chromium.launchPersistentContext(fileURLToPath(new URL('profile-'+Date.now()+'/',out)),{...(process.env.BROWSER_TEST_EXECUTABLE?{executablePath:process.env.BROWSER_TEST_EXECUTABLE}:{}),headless:true,chromiumSandbox:true,viewport:{width:1280,height:900}}),page=await context.newPage();
+const checks={},details={},check=(name,value,detail)=>{checks[name]=!!value;if(!value)details[name]=detail;};
+try{
+ const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=','base64');
+ await page.route('**/*',route=>route.request().url()==='https://icons.test/icon.png'?route.fulfill({status:200,headers:{'content-type':'image/png','access-control-allow-origin':'*'},body:png}):route.abort());
+ await page.route('https://ses.test/',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html><body><input id="urlbar"><section mod-id="search-engine-select"><div id="settings"></div></section></body></html>'}));
+ await page.goto('https://ses.test/');
+ await page.addStyleTag({content:await readFile(new URL('style.css',root),'utf8')});
+ await page.addStyleTag({content:'body{font:14px Arial;margin:16px;background:#1c1b22;color:white} #settings{width:750px;max-width:calc(100vw - 32px)}'});
+ await page.evaluate(()=>{
+  const prefs=new Map(),observers=new Map(),tabContainer=new EventTarget();window.navigations=[];
+  window.testPut=(key,value)=>{prefs.set(key,value);for(const [prefix,listeners]of observers)if(key.startsWith(prefix))for(const l of listeners)typeof l==='function'?l():l.observe();};
+  const search={getVisibleEngines:async()=>['DuckDuckGo','Google'].map(name=>({id:name,name,getSubmission:term=>({uri:{spec:(name==='Google'?'https://www.google.com/search?q=':'https://duckduckgo.com/?q=')+encodeURIComponent(term)},postData:null})})),getDefault:()=>({name:'DuckDuckGo'})};
+  window.Services={prefs:{PREF_STRING:32,PREF_INT:64,PREF_BOOL:128,getPrefType:k=>({string:32,number:64,boolean:128}[typeof prefs.get(k)]||0),getStringPref:(k,d)=>prefs.has(k)?prefs.get(k):d,getBoolPref:(k,d)=>prefs.has(k)?prefs.get(k):d,getIntPref:(k,d)=>prefs.has(k)?prefs.get(k):d,setStringPref:testPut,setBoolPref:testPut,setIntPref:testPut,addObserver:(key,listener)=>{if(!observers.has(key))observers.set(key,new Set());observers.get(key).add(listener);},removeObserver:(key,l)=>observers.get(key)?.delete(l)},obs:{addObserver(){},removeObserver(){}},search};
+  window.ChromeUtils={importESModule:()=>({SearchService:search}),generateQI:()=>()=>{}};
+  window.gBrowser={selectedBrowser:{currentURI:{spec:'https://duckduckgo.com/?q=tea%20%26%20%D7%A9%D7%9C%D7%95%D7%9D'},getBoundingClientRect:()=>({x:0,y:0,width:innerWidth,height:innerHeight})},selectedTab:document.createElement('tab'),tabContainer,addTabsProgressListener(){},removeTabsProgressListener(){}};
+  window.gURLBar={inputField:document.querySelector('#urlbar'),value:''};window.openTrustedLinkIn=(...args)=>navigations.push(args);window.addUnloadListener=()=>{};
+ });
+ const runtime=(await readFile(new URL('search-engine-select-runtime.uc.js',root),'utf8')).replace('  // utils/startup-finish.js','  window.makeSESSettings=createEngineSettings;\n  // utils/startup-finish.js');
+ await page.addScriptTag({content:runtime});await page.waitForSelector('#ses-engine-select');
+ await page.evaluate(()=>window.manager=makeSESSettings(document.querySelector('#settings')));
+ await page.waitForSelector('[data-ses-engine="custom-preset-youtube"]');
+ check('normal_list_no_presets',await page.locator('[name=ses-preset]').count()===0&&await page.locator('.ses-manager-list [data-ses-engine]').count()===9);
+ await page.locator('#ses-engine-select').click();
+ details.menuLabels=await page.locator('.ses-engine-option').allTextContents();
+ check('all_bundled_icons_decode',await page.locator('.ses-engine-option').evaluateAll(nodes=>nodes.filter(n=>!['DuckDuckGo','Google'].includes(n.textContent.trim())).every(n=>n.querySelector('img').complete&&n.querySelector('img').naturalWidth>0)));
+ check('no_horizontal_popup_scroll',await page.locator('#ses-engine-options').evaluate(el=>el.scrollWidth<=el.clientWidth));
+ const google=page.locator('.ses-engine-option').filter({hasText:/^\s*Google\s*$/});
+ await google.click({modifiers:['Control']});check('ctrl_background_one_tab',await page.evaluate(()=>navigations.length===1&&navigations[0][1]==='tab'&&navigations[0][2].inBackground===true));
+ await page.locator('#ses-engine-select').click();await google.click({button:'middle'});check('middle_background_one_tab',await page.evaluate(()=>navigations.length===2&&navigations[1][1]==='tab'));
+ await page.evaluate(()=>testPut('extension.search-engine-select.open-in-new-tab',false));
+ await page.locator('#ses-engine-select').click();await google.click({modifiers:['Control']});check('disabled_modifier_no_action',await page.evaluate(()=>navigations.length===2));
+ await page.locator('#ses-engine-select').click();await google.click();check('ordinary_click_current_tab',await page.evaluate(()=>navigations.length===3&&navigations[2][1]==='current'));
+ const reddit=page.locator('[data-ses-engine="custom-preset-reddit"]');await reddit.locator('input').uncheck();
+ check('deselected_row_retained',await reddit.count()===1&&!await reddit.locator('input').isChecked());
+ check('deselected_popup_removed',await page.locator('.ses-engine-option').filter({hasText:/^Reddit$/}).count()===0);
+ await reddit.locator('input').check();
+ const yt=page.locator('[data-ses-engine="custom-preset-youtube"]');await yt.locator('[data-ses-action=edit]').click();
+ await page.locator('[name=ses-icon]').selectOption('url');await page.locator('[name=ses-icon-url]').fill('https://icons.test/icon.png');await page.locator('[data-ses-action=preview-icon]').click();
+ await page.waitForFunction(()=>document.querySelector('.ses-icon-preview').naturalWidth>0&&document.querySelector('[role=status]').textContent.includes('Preview ready'));
+ check('real_image_decode_preview',await page.locator('.ses-icon-preview').evaluate(el=>el.naturalWidth===32));
+ await page.locator('[data-ses-action=add]').click();
+ check('custom_icon_saved',await page.evaluate(()=>JSON.parse(Services.prefs.getStringPref('extension.search-engine-select.engines')).custom.find(e=>e.id==='custom-preset-youtube').icon.data.startsWith('data:image/png;base64,')));
+ await yt.locator('[data-ses-action=edit]').click();await page.locator('[data-ses-action=reset-icon]').click();await page.locator('[data-ses-action=add]').click();
+ check('icon_reset_default',await page.evaluate(()=>!JSON.parse(Services.prefs.getStringPref('extension.search-engine-select.engines')).custom.find(e=>e.id==='custom-preset-youtube').icon));
+ const handle=yt.locator('.ses-reorder-handle'),target=page.locator('[data-ses-engine="native:DuckDuckGo"]');
+ await page.evaluate(()=>{window.dragLog=[];for(const type of ['dragstart','dragover','drop','dragend'])document.addEventListener(type,e=>dragLog.push({type,id:e.target.closest('[data-ses-engine]')?.dataset.sesEngine,types:[...(e.dataTransfer?.types||[])],prevented:e.defaultPrevented}),true);});
+ await handle.dragTo(target,{targetPosition:{x:40,y:3}});check('real_drag_reorder',await page.locator('.ses-manager-list [data-ses-engine]').first().getAttribute('data-ses-engine')==='custom-preset-youtube');
+ if(!checks.real_drag_reorder)details.drag=await page.evaluate(()=>({events:dragLog,rows:[...document.querySelectorAll('.ses-manager-list [data-ses-engine]')].map(n=>n.dataset.sesEngine),error:document.querySelector('[data-ses-error]').textContent}));
+ await page.locator('[data-ses-engine="custom-preset-reddit-google"] [data-ses-action=remove-custom]').click();
+ const state=await page.evaluate(()=>Services.prefs.getStringPref('extension.search-engine-select.engines'));await page.evaluate(()=>{manager.destroy();window.manager=makeSESSettings(document.querySelector('#settings'));});
+ check('removed_stays_removed',await page.locator('.ses-manager-list [data-ses-engine="custom-preset-reddit-google"]').count()===0);
+ check('settings_no_horizontal_scroll',await page.locator('#ses-engine-manager').evaluate(el=>el.scrollWidth<=el.clientWidth));
+ await page.screenshot({path:fileURLToPath(new URL('settings.png',out))});
+ await page.evaluate(()=>{gBrowser.selectedBrowser.currentURI.spec='https://www.goodreads.com/search?q=tea';gBrowser.tabContainer.dispatchEvent(new Event('TabSelect'));});
+ check('ordinary_site_hidden',await page.locator('#search-engine-switcher-container').isHidden());
+ for(let i=0;i<5;i++)await page.evaluate(()=>{testPut('extension.search-engine-select.enabled',false);testPut('extension.search-engine-select.enabled',true);});
+ check('reload_single_owner',await page.locator('#search-engine-switcher-container').count()===1);
+ details.settingsBytes=state.length;
+}catch(error){checks.execution=false;details.error=String(error);}
+finally{await context.close();}
+const report={scope:'Chromium production runtime with simulated Zen services, not native Sine',checks,details};await writeFile(new URL('report.json',out),JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify(report,null,2));if(Object.values(checks).some(v=>!v))process.exitCode=1;

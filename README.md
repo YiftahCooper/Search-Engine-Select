@@ -74,6 +74,20 @@ POST search submissions are unsupported. A service that redirects to a different
 
 One controller owns the selector in each browser window. Reload and unload clean up its controls, observers, and callbacks. Orphan roots from older versions are reclaimed by exact mod ID. Historical anonymous callbacks from upstream cannot be unregistered; restarting the browser clears those callbacks. The runtime entry URL introduced in 1.2.1 remains unchanged.
 
+## Development
+
+The runtime `search-engine-select-runtime.uc.js` is generated from `src/` by `build.mjs`.
+Sine installs the whole repository but loads only the files named in `theme.json`.
+
+```sh
+npm ci
+npm test               # unit and behaviour tests (tests/*.test.mjs)
+node build.mjs         # regenerate the runtime from src/
+node build.mjs --check # confirm the runtime matches src/
+```
+
+`tests/README.md` describes the browser qualification and native probes.
+
 ## Verification status
 
 Version 1.3.4 passes **89 automated tests**, generated-runtime equality and syntax checks. Its observer, startup-retry and positioning changes have not yet been checked in native Zen; the remaining results in this section were recorded for 1.3.3. Additional modeled matrices covered 405 source/destination/query combinations and 28 settings lifecycle scenarios across schemas 1–4. Independent review checked current-window versus stale-window editing behavior.
